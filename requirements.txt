@@ -1,0 +1,4 @@
+Flask>=3.0,<4
+python-pptx>=1.0
+matplotlib>=3.8
+waitress>=3.0
