@@ -361,6 +361,369 @@ class DashboardStore:
         with self._lock:
             return sorted({r["model"] for r in self.raw_records if r["branch"] == branch})
 
+
+    def status_summary(
+        self,
+        area: str = "Overall",
+        branch: str = "All Branches",
+        brand: str = "All Brands",
+        model: str = "All Models",
+        class_key: str = "All Classes",
+        status: str = "All Statuses",
+    ) -> Dict[str, Any]:
+        """Filterable Brand + Model stock-status summary from Raw/Distribution records."""
+        with self._lock:
+            records = list(self.raw_records)
+
+        all_brands = sorted({r["brand"] or "Unspecified" for r in records})
+        all_models = sorted({r["model"] for r in records if r["model"]})
+        all_statuses = sorted({r["stock_status"] for r in records if r["stock_status"]})
+
+        def matches(r: Dict[str, Any]) -> bool:
+            r_brand = r["brand"] or "Unspecified"
+            if area and area != "Overall" and r["area"] != area:
+                return False
+            if branch and branch != "All Branches" and r["branch"] != branch:
+                return False
+            if brand and brand != "All Brands" and r_brand != brand:
+                return False
+            if model and model != "All Models" and r["model"] != model:
+                return False
+            if class_key and class_key != "All Classes" and r["class"] != class_key:
+                return False
+            if status and status != "All Statuses" and r["stock_status"].lower() != status.lower():
+                return False
+            return True
+
+        filtered = [r for r in records if matches(r)]
+        valid_status = [r for r in filtered if r["stock_status"]]
+        stockout_count = sum(1 for r in valid_status if _is_stockout(r["stock_status"]))
+        avg_doi = sum(r["doi"] for r in filtered) / len(filtered) if filtered else 0.0
+        summary = {
+            "records": len(filtered),
+            "models": len({(r["brand"] or "Unspecified", r["model"]) for r in filtered}),
+            "branches": len({r["branch"] for r in filtered if r["branch"]}),
+            "inventory": round(sum(r["inventory"] for r in filtered), 4),
+            "suggested_transfer": round(sum(r["suggested_transfer"] for r in filtered), 4),
+            "avg_doi": round(avg_doi, 4),
+            "stockout_count": stockout_count,
+            "stockout_rate": _pct(stockout_count / len(valid_status)) if valid_status else 0.0,
+        }
+
+        status_breakdown: Dict[str, int] = defaultdict(int)
+        for r in valid_status:
+            status_breakdown[r["stock_status"]] += 1
+
+        brand_groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        model_groups: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+        for r in filtered:
+            b = r["brand"] or "Unspecified"
+            brand_groups[b].append(r)
+            model_groups[(b, r["model"])].append(r)
+
+        brand_rows = []
+        for b, rows in brand_groups.items():
+            statuses: Dict[str, int] = defaultdict(int)
+            valid = [r for r in rows if r["stock_status"]]
+            for r in valid:
+                statuses[r["stock_status"]] += 1
+            so = sum(1 for r in valid if _is_stockout(r["stock_status"]))
+            brand_rows.append({
+                "brand": b,
+                "models": len({r["model"] for r in rows}),
+                "branches": len({r["branch"] for r in rows if r["branch"]}),
+                "records": len(rows),
+                "inventory": round(sum(r["inventory"] for r in rows), 4),
+                "suggested_transfer": round(sum(r["suggested_transfer"] for r in rows), 4),
+                "avg_doi": round(sum(r["doi"] for r in rows) / len(rows), 4) if rows else 0.0,
+                "stockout_count": so,
+                "stockout_rate": _pct(so / len(valid)) if valid else 0.0,
+                "statuses": dict(sorted(statuses.items())),
+            })
+        brand_rows.sort(key=lambda x: (-x["stockout_rate"], -x["stockout_count"], x["brand"]))
+
+        model_rows = []
+        for (b, m), rows in model_groups.items():
+            statuses: Dict[str, int] = defaultdict(int)
+            valid = [r for r in rows if r["stock_status"]]
+            for r in valid:
+                statuses[r["stock_status"]] += 1
+            so = sum(1 for r in valid if _is_stockout(r["stock_status"]))
+            classes = sorted({r["class"] for r in rows if r["class"]})
+            model_rows.append({
+                "brand": b,
+                "model": m,
+                "class": "/".join(classes) if classes else "—",
+                "branches": len({r["branch"] for r in rows if r["branch"]}),
+                "records": len(rows),
+                "inventory": round(sum(r["inventory"] for r in rows), 4),
+                "suggested_transfer": round(sum(r["suggested_transfer"] for r in rows), 4),
+                "avg_doi": round(sum(r["doi"] for r in rows) / len(rows), 4) if rows else 0.0,
+                "stockout_count": so,
+                "stockout_rate": _pct(so / len(valid)) if valid else 0.0,
+                "statuses": dict(sorted(statuses.items())),
+            })
+        model_rows.sort(key=lambda x: (-x["stockout_rate"], -x["stockout_count"], x["brand"], x["model"]))
+
+        return {
+            "selected": {
+                "area": area or "Overall",
+                "branch": branch or "All Branches",
+                "brand": brand or "All Brands",
+                "model": model or "All Models",
+                "class": class_key or "All Classes",
+                "status": status or "All Statuses",
+            },
+            "filters": {
+                "areas": ["Overall"] + self.areas,
+                "branches": ["All Branches"] + self.branches,
+                "brands": ["All Brands"] + all_brands,
+                "models": ["All Models"] + all_models,
+                "classes": ["All Classes", "A", "B", "C"],
+                "statuses": ["All Statuses"] + all_statuses,
+            },
+            "summary": summary,
+            "status_breakdown": dict(sorted(status_breakdown.items())),
+            "brands": brand_rows,
+            "models": model_rows,
+        }
+
+
+    def brand_model_performance(
+        self,
+        area: str = "Overall",
+        branch: str = "All Branches",
+        brand: str = "All Brands",
+        model: str = "All Models",
+        class_key: str = "All Classes",
+    ) -> Dict[str, Any]:
+        """Separate performance view for Brand and Model execution, distinct from status/network views."""
+        with self._lock:
+            records = list(self.raw_records)
+
+        all_brands = sorted({r["brand"] or "Unspecified" for r in records})
+        all_models = sorted({r["model"] for r in records if r["model"]})
+
+        def matches(r: Dict[str, Any]) -> bool:
+            r_brand = r["brand"] or "Unspecified"
+            if area and area != "Overall" and r["area"] != area:
+                return False
+            if branch and branch != "All Branches" and r["branch"] != branch:
+                return False
+            if brand and brand != "All Brands" and r_brand != brand:
+                return False
+            if model and model != "All Models" and r["model"] != model:
+                return False
+            if class_key and class_key != "All Classes" and r["class"] != class_key:
+                return False
+            return True
+
+        filtered = [r for r in records if matches(r)]
+
+        def metrics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+            valid = [r for r in rows if r["stock_status"]]
+            so = sum(1 for r in valid if _is_stockout(r["stock_status"]))
+            class_a = [r for r in rows if r["class"] == "A" and r["stock_status"]]
+            class_a_so = sum(1 for r in class_a if _is_stockout(r["stock_status"]))
+            return {
+                "records": len(rows),
+                "branches": len({r["branch"] for r in rows if r["branch"]}),
+                "areas": len({r["area"] for r in rows if r["area"]}),
+                "inventory": round(sum(r["inventory"] for r in rows), 4),
+                "suggested_transfer": round(sum(r["suggested_transfer"] for r in rows), 4),
+                "avg_doi": round(sum(r["doi"] for r in rows) / len(rows), 4) if rows else 0.0,
+                "stockout_count": so,
+                "stockout_rate": _pct(so / len(valid)) if valid else 0.0,
+                "class_a_records": len(class_a),
+                "class_a_stockout_count": class_a_so,
+                "class_a_stockout_rate": _pct(class_a_so / len(class_a)) if class_a else 0.0,
+            }
+
+        summary = metrics(filtered)
+        summary.update({
+            "brands": len({r["brand"] or "Unspecified" for r in filtered}),
+            "models": len({(r["brand"] or "Unspecified", r["model"]) for r in filtered}),
+        })
+
+        brand_groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        model_groups: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+        for r in filtered:
+            b = r["brand"] or "Unspecified"
+            brand_groups[b].append(r)
+            model_groups[(b, r["model"])].append(r)
+
+        brand_rows = []
+        for b, rows in brand_groups.items():
+            m = metrics(rows)
+            m.update({"brand": b, "models": len({r["model"] for r in rows})})
+            brand_rows.append(m)
+        brand_rows.sort(key=lambda x: (-x["class_a_stockout_rate"], -x["stockout_rate"], -x["suggested_transfer"], x["brand"]))
+
+        model_rows = []
+        for (b, mod), rows in model_groups.items():
+            m = metrics(rows)
+            classes = sorted({r["class"] for r in rows if r["class"]})
+            stock_statuses = sorted({r["stock_status"] for r in rows if r["stock_status"]})
+            m.update({
+                "brand": b,
+                "model": mod,
+                "class": "/".join(classes) if classes else "—",
+                "statuses": stock_statuses,
+            })
+            model_rows.append(m)
+        model_rows.sort(key=lambda x: (-x["class_a_stockout_rate"], -x["stockout_rate"], -x["suggested_transfer"], x["brand"], x["model"]))
+
+        return {
+            "selected": {"area": area, "branch": branch, "brand": brand, "model": model, "class": class_key},
+            "filters": {
+                "areas": ["Overall"] + self.areas,
+                "branches": ["All Branches"] + self.branches,
+                "brands": ["All Brands"] + all_brands,
+                "models": ["All Models"] + all_models,
+                "classes": ["All Classes", "A", "B", "C"],
+            },
+            "summary": summary,
+            "brands": brand_rows,
+            "models": model_rows,
+        }
+
+    def network_summary(
+        self,
+        area: str = "Overall",
+        brand: str = "All Brands",
+        model: str = "All Models",
+        class_key: str = "All Classes",
+        status: str = "All Statuses",
+    ) -> Dict[str, Any]:
+        """Brand / Model network view aggregated per Area for SCM network analysis."""
+        with self._lock:
+            records = list(self.raw_records)
+
+        all_brands = sorted({r["brand"] or "Unspecified" for r in records})
+        all_models = sorted({r["model"] for r in records if r["model"]})
+        all_statuses = sorted({r["stock_status"] for r in records if r["stock_status"]})
+
+        def matches(r: Dict[str, Any]) -> bool:
+            r_brand = r["brand"] or "Unspecified"
+            if area and area != "Overall" and r["area"] != area:
+                return False
+            if brand and brand != "All Brands" and r_brand != brand:
+                return False
+            if model and model != "All Models" and r["model"] != model:
+                return False
+            if class_key and class_key != "All Classes" and r["class"] != class_key:
+                return False
+            if status and status != "All Statuses" and r["stock_status"].lower() != status.lower():
+                return False
+            return True
+
+        filtered = [r for r in records if matches(r)]
+        scoped_areas = [area] if area and area != "Overall" else list(self.areas)
+        present_areas = sorted({r["area"] for r in filtered if r["area"]})
+        valid_status = [r for r in filtered if r["stock_status"]]
+        stockouts = sum(1 for r in valid_status if _is_stockout(r["stock_status"]))
+
+        summary = {
+            "areas": len(present_areas),
+            "brands": len({r["brand"] or "Unspecified" for r in filtered}),
+            "models": len({(r["brand"] or "Unspecified", r["model"]) for r in filtered}),
+            "branches": len({r["branch"] for r in filtered if r["branch"]}),
+            "inventory": round(sum(r["inventory"] for r in filtered), 4),
+            "suggested_transfer": round(sum(r["suggested_transfer"] for r in filtered), 4),
+            "avg_doi": round(sum(r["doi"] for r in filtered) / len(filtered), 4) if filtered else 0.0,
+            "stockout_count": stockouts,
+            "stockout_rate": _pct(stockouts / len(valid_status)) if valid_status else 0.0,
+        }
+
+        area_rows = []
+        for a in scoped_areas:
+            rows = [r for r in filtered if r["area"] == a]
+            if not rows:
+                continue
+            valid = [r for r in rows if r["stock_status"]]
+            so = sum(1 for r in valid if _is_stockout(r["stock_status"]))
+            statuses: Dict[str, int] = defaultdict(int)
+            for r in valid:
+                statuses[r["stock_status"]] += 1
+            area_rows.append({
+                "area": a,
+                "brands": len({r["brand"] or "Unspecified" for r in rows}),
+                "models": len({(r["brand"] or "Unspecified", r["model"]) for r in rows}),
+                "branches": len({r["branch"] for r in rows if r["branch"]}),
+                "records": len(rows),
+                "inventory": round(sum(r["inventory"] for r in rows), 4),
+                "suggested_transfer": round(sum(r["suggested_transfer"] for r in rows), 4),
+                "avg_doi": round(sum(r["doi"] for r in rows) / len(rows), 4),
+                "stockout_count": so,
+                "stockout_rate": _pct(so / len(valid)) if valid else 0.0,
+                "statuses": dict(sorted(statuses.items())),
+            })
+        area_rows.sort(key=lambda x: (-x["stockout_rate"], x["area"]))
+
+        grouped: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
+        for r in filtered:
+            grouped[(r["brand"] or "Unspecified", r["model"])].append(r)
+
+        matrix_rows = []
+        for (b, m), rows in grouped.items():
+            classes = sorted({r["class"] for r in rows if r["class"]})
+            cells = {}
+            for a in scoped_areas:
+                ar = [r for r in rows if r["area"] == a]
+                if not ar:
+                    continue
+                valid = [r for r in ar if r["stock_status"]]
+                so = sum(1 for r in valid if _is_stockout(r["stock_status"]))
+                statuses: Dict[str, int] = defaultdict(int)
+                for r in valid:
+                    statuses[r["stock_status"]] += 1
+                cells[a] = {
+                    "branches": len({r["branch"] for r in ar if r["branch"]}),
+                    "records": len(ar),
+                    "inventory": round(sum(r["inventory"] for r in ar), 4),
+                    "suggested_transfer": round(sum(r["suggested_transfer"] for r in ar), 4),
+                    "avg_doi": round(sum(r["doi"] for r in ar) / len(ar), 4),
+                    "stockout_count": so,
+                    "stockout_rate": _pct(so / len(valid)) if valid else 0.0,
+                    "statuses": dict(sorted(statuses.items())),
+                }
+            valid_all = [r for r in rows if r["stock_status"]]
+            so_all = sum(1 for r in valid_all if _is_stockout(r["stock_status"]))
+            matrix_rows.append({
+                "brand": b,
+                "model": m,
+                "class": "/".join(classes) if classes else "—",
+                "areas": len({r["area"] for r in rows if r["area"]}),
+                "branches": len({r["branch"] for r in rows if r["branch"]}),
+                "inventory": round(sum(r["inventory"] for r in rows), 4),
+                "suggested_transfer": round(sum(r["suggested_transfer"] for r in rows), 4),
+                "avg_doi": round(sum(r["doi"] for r in rows) / len(rows), 4) if rows else 0.0,
+                "stockout_rate": _pct(so_all / len(valid_all)) if valid_all else 0.0,
+                "cells": cells,
+            })
+        matrix_rows.sort(key=lambda x: (-x["stockout_rate"], x["brand"], x["model"]))
+
+        return {
+            "selected": {
+                "area": area or "Overall",
+                "brand": brand or "All Brands",
+                "model": model or "All Models",
+                "class": class_key or "All Classes",
+                "status": status or "All Statuses",
+            },
+            "filters": {
+                "areas": ["Overall"] + self.areas,
+                "brands": ["All Brands"] + all_brands,
+                "models": ["All Models"] + all_models,
+                "classes": ["All Classes", "A", "B", "C"],
+                "statuses": ["All Statuses"] + all_statuses,
+            },
+            "areas": scoped_areas,
+            "summary": summary,
+            "area_rows": area_rows,
+            "matrix": matrix_rows,
+        }
+
     def bootstrap(self, role: str) -> Dict[str, Any]:
         branch = self.branches[0] if self.branches else ""
         return {
@@ -371,4 +734,5 @@ class DashboardStore:
             "kpis": self.kpis,
             "area": self.area_dashboard("Overall"),
             "branch": self.branch_dashboard(branch),
+            "status_summary": self.status_summary(),
         }

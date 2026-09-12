@@ -12,13 +12,15 @@ import time
 import webbrowser
 
 from dashboard.metrics import DashboardStore
-from dashboard.xlsx_export import build_branch_request_xlsx
+from dashboard.xlsx_export import build_branch_request_xlsx, build_delivery_plan_xlsx
 from dashboard.ppt_export import build_presentation
+from dashboard.delivery import DeliveryStore, DAYS
 
 BASE = Path(__file__).resolve().parent
 DATA_FILE = BASE / "data" / "MC_Dashboard_IMPORT.xlsx"
-UPLOAD_DIR = BASE / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+STATE_ROOT = Path(os.environ.get("SCM_DATA_DIR", str(BASE / "uploads")))
+STATE_ROOT.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR = STATE_ROOT
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SCM_SECRET_KEY", "change-this-secret-before-production")
@@ -28,6 +30,8 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 ADMIN_PASSWORD = os.environ.get("SCM_ADMIN_PASSWORD", "admin123")
 ACTIVE_IMPORT = UPLOAD_DIR / "active_import.xlsx"
 store = DashboardStore(ACTIVE_IMPORT if ACTIVE_IMPORT.exists() else DATA_FILE)
+delivery_store = DeliveryStore(BASE / "data" / "delivery_master.json", STATE_ROOT / "delivery")
+delivery_store.sync_dashboard_branches(store.raw_records)
 
 
 def role():
@@ -82,6 +86,32 @@ def api_branch():
     return jsonify(store.branch_dashboard(branch))
 
 
+@app.get("/api/status-summary")
+def api_status_summary():
+    return jsonify(store.status_summary(
+        area=request.args.get("area", "Overall"),
+        branch=request.args.get("branch", "All Branches"),
+        brand=request.args.get("brand", "All Brands"),
+        model=request.args.get("model", "All Models"),
+        class_key=request.args.get("class", "All Classes"),
+        status=request.args.get("status", "All Statuses"),
+    ))
+
+
+
+
+@app.get("/api/delivery")
+def api_delivery():
+    day = request.args.get("day", "Monday")
+    return jsonify(delivery_store.bootstrap(day, store.raw_records))
+
+
+@app.get("/delivery/template")
+def delivery_template():
+    path = BASE / "data" / "Delivery_Allocation_Import_Template.xlsx"
+    return send_file(path, as_attachment=True, download_name="Delivery_Allocation_Import_Template.xlsx")
+
+
 @app.get("/api/branch-models")
 def api_branch_models():
     branch = request.args.get("branch", "")
@@ -113,6 +143,7 @@ def admin_import():
     active = UPLOAD_DIR / "active_import.xlsx"
     shutil.move(tmp, active)
     store.load(active)
+    delivery_store.sync_dashboard_branches(store.raw_records)
     return jsonify({"ok": True, "message": "Import completed. Dashboard data refreshed.", "generated_at": store.generated_at.isoformat()})
 
 
@@ -154,9 +185,80 @@ def admin_export_request():
     return send_file(BytesIO(xlsx), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=f"Branch_Request_{safe_branch}_{stamp}.xlsx")
 
 
+@app.post("/admin/delivery/import")
+@admin_required
+def admin_delivery_import():
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "Select an allocation file."}), 400
+    ext = Path(f.filename or "").suffix.lower()
+    if ext not in {".xlsx", ".xlsm", ".csv"}:
+        return jsonify({"error": "Allocation import accepts .xlsx, .xlsm or .csv."}), 400
+    tmp = UPLOAD_DIR / f"delivery_allocation_candidate{ext}"
+    f.save(tmp)
+    try:
+        rows, warnings = delivery_store.import_allocations(tmp)
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        return jsonify({"error": str(exc)}), 400
+    tmp.unlink(missing_ok=True)
+    return jsonify({"ok": True, "rows": len(rows), "warnings": warnings[:20], "message": f"Imported {len(rows)} allocation rows."})
+
+
+@app.post("/admin/delivery/master")
+@admin_required
+def admin_delivery_master():
+    payload = request.get_json(force=True, silent=True) or {}
+    try:
+        master = delivery_store.update_master(str(payload.get("section", "")), payload.get("rows"))
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"ok": True, "master": master})
+
+
+@app.post("/admin/delivery/schedule")
+@admin_required
+def admin_delivery_schedule():
+    payload = request.get_json(force=True, silent=True) or {}
+    try:
+        schedule = delivery_store.update_schedule(payload.get("rows") or [])
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"ok": True, "schedule": schedule})
+
+
+@app.post("/admin/delivery/allocations")
+@admin_required
+def admin_delivery_allocations():
+    payload = request.get_json(force=True, silent=True) or {}
+    try:
+        allocations = delivery_store.replace_allocations(payload.get("rows") or [])
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"ok": True, "allocations": allocations})
+
+
+@app.get("/admin/export/delivery")
+@admin_required
+def admin_export_delivery():
+    day = request.args.get("day", "Monday")
+    if day not in DAYS:
+        day = "Monday"
+    current = delivery_store.analyze(day, store.raw_records)
+    weekly = {d: delivery_store.analyze(d, store.raw_records) for d in DAYS}
+    xlsx = build_delivery_plan_xlsx(day, current, weekly, delivery_store.schedule)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    return send_file(
+        BytesIO(xlsx),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"Delivery_Plan_{day}_{stamp}.xlsx",
+    )
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "role": role(), "records": len(store.raw_records)}
+    return {"status": "ok", "role": role(), "records": len(store.raw_records), "delivery_allocations": len(delivery_store.allocations)}
 
 
 def _port_is_available(host: str, port: int) -> bool:
