@@ -78,7 +78,7 @@ html[data-theme="light"] .mainTab:not(.tab-active){background:#fff!important;col
 <section>
 <div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 <div><h2 class="text-lg font-bold">Executive KPI Trends</h2><p class="text-xs text-slate-500">Actual and Trend Direction share one chart. Trend is presented as one straight dashed directional line above Actual, matching the approved reference style.</p></div>
-<div class="flex flex-wrap items-center gap-2"><label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Period</label><select id="periodFilter" class="rounded-xl border border-amber-400/40 px-3 py-2 text-xs font-bold text-amber-500"><option value="ytd">YTD</option><option value="weekly">Weekly</option></select><div id="lastRefresh" class="text-xs text-slate-500"></div></div>
+<div class="flex flex-wrap items-center gap-2"><label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Period</label><select id="periodFilter" class="rounded-xl border border-amber-400/40 px-3 py-2 text-xs font-bold text-amber-500"><option value="ytd">YTD</option><option value="weekly">Weekly</option></select><button id="pointDataBtn" type="button" class="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300" aria-pressed="true">Hide Data</button><div id="lastRefresh" class="text-xs text-slate-500"></div></div>
 </div><div id="kpiGrid" class="space-y-4"></div></section>
 
 <section class="glass rounded-2xl border p-4 sm:p-5">
@@ -117,7 +117,7 @@ html[data-theme="light"] .mainTab:not(.tab-active){background:#fff!important;col
 </div>
 <div id="toast" class="fixed bottom-4 right-4 z-50 hidden max-w-sm rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm shadow-2xl"></div>
 <script>
-const state={boot:null,charts:[],model:null,requests:[],period:'ytd',theme:document.documentElement.dataset.theme||'dark',branchData:null,classFilter:'A'};
+const state={boot:null,charts:[],model:null,requests:[],period:'ytd',theme:document.documentElement.dataset.theme||'dark',branchData:null,classFilter:'A',showPointData:localStorage.getItem('scm-point-data')!=='hidden'};
 const isAdmin={{ 'true' if role == 'admin' else 'false' }};
 const $=s=>document.querySelector(s); const $$=s=>[...document.querySelectorAll(s)];
 function toast(msg,ok=true){const t=$('#toast');t.textContent=msg;t.className=`fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border px-4 py-3 text-sm shadow-2xl ${ok?'border-emerald-600 bg-emerald-950 text-emerald-200':'border-red-600 bg-red-950 text-red-200'}`;t.classList.remove('hidden');setTimeout(()=>t.classList.add('hidden'),3500)}
@@ -129,6 +129,29 @@ function metricCard(label,val,delta,unit){const suffix=unit==='percent'?'%':' d'
 function palette(){return state.theme==='light'?{axis:'#475569',grid:'rgba(100,116,139,.18)',actual:'#d97706',trend:'#475569',trendFill:'rgba(71,85,105,.08)'}:{axis:'#94a3b8',grid:'rgba(100,116,139,.16)',actual:'#fbbf24',trend:'#cbd5e1',trendFill:'rgba(148,163,184,.06)'}}
 function monthOnly(label){const s=String(label||'');const m=s.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i);return m?m[1].slice(0,3):s}
 function displayLabels(labels){return state.period==='ytd'?labels.map(monthOnly):labels}
+const pointValueLabelPlugin={
+  id:'pointValueLabels',
+  afterDatasetsDraw(chart,args,opts){
+    if(!opts?.enabled)return;
+    const actualIndex=chart.data.datasets.findIndex(ds=>ds.label==='Actual');
+    if(actualIndex<0)return;
+    const meta=chart.getDatasetMeta(actualIndex),values=chart.data.datasets[actualIndex].data,ctx=chart.ctx;
+    ctx.save();
+    ctx.fillStyle=opts.color||'#e2e8f0';
+    ctx.font='700 10px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+    ctx.textAlign='center';
+    ctx.textBaseline='bottom';
+    meta.data.forEach((pt,i)=>{
+      const v=values[i];
+      if(!Number.isFinite(Number(v))||pt.skip)return;
+      const y=Math.max(chart.chartArea.top+12,pt.y-8);
+      ctx.fillText(fmt(v),pt.x,y);
+    });
+    ctx.restore();
+  }
+};
+function syncPointDataButton(){const b=$('#pointDataBtn');if(!b)return;b.textContent=state.showPointData?'Hide Data':'Show Data';b.setAttribute('aria-pressed',state.showPointData?'true':'false');b.classList.toggle('border-amber-400/50',state.showPointData);b.classList.toggle('text-amber-500',state.showPointData);b.classList.toggle('border-slate-700',!state.showPointData);b.classList.toggle('text-slate-300',!state.showPointData)}
+function setPointDataVisibility(show){state.showPointData=!!show;localStorage.setItem('scm-point-data',state.showPointData?'shown':'hidden');syncPointDataButton();state.charts.forEach(c=>{if(c.options.plugins.pointValueLabels)c.options.plugins.pointValueLabels.enabled=state.showPointData;c.update('none')})}
 function makeCombinedChart(canvas,labels,values,trend,unit){
   const p=palette(),actual=values.map(roundHalfUp),trueTrend=trend.map(v=>Number(v)),labs=displayLabels(labels);
   const numeric=[...actual,...trueTrend].filter(Number.isFinite);
@@ -155,7 +178,7 @@ function makeCombinedChart(canvas,labels,values,trend,unit){
   const c=new Chart(canvas,{type:'line',data:{labels:labs,datasets:[
     {label:'Actual',data:actual,borderColor:p.actual,backgroundColor:'rgba(251,191,36,.10)',pointBackgroundColor:p.actual,pointBorderColor:p.actual,pointRadius:state.period==='ytd'?3:3.5,pointHoverRadius:6,borderWidth:2.7,tension:0,fill:true,order:1},
     {label:trendLabel,data:displayTrend,borderColor:p.trend,backgroundColor:'transparent',pointRadius:0,pointHoverRadius:0,borderWidth:2.3,borderDash:[10,7],borderCapStyle:'butt',borderJoinStyle:'miter',tension:0,fill:false,spanGaps:true,order:0,trueTrend:trueTrend}
-  ]},options:{responsive:true,maintainAspectRatio:false,resizeDelay:80,interaction:{mode:'index',intersect:false},layout:{padding:{left:2,right:4,top:14,bottom:0}},plugins:{legend:{display:true,position:'top',align:'end',labels:{color:p.axis,usePointStyle:false,boxWidth:24,boxHeight:2,padding:16,font:{size:10,weight:'bold'}}},tooltip:{callbacks:{label:(ctx)=>{const suffix=unit==='percent'?'%':' days';if(String(ctx.dataset.label||'').startsWith('Trend Direction')){const raw=ctx.dataset.trueTrend?.[ctx.dataIndex];return `Trend Direction: ${fmt(raw)}${suffix}`;}return `Actual: ${fmt(ctx.parsed.y)}${suffix}`;}}}},scales:{x:{offset:false,grid:{display:false},ticks:{color:p.axis,autoSkip:state.period!=='ytd',maxTicksLimit:state.period==='ytd'?12:8,maxRotation:0,minRotation:0,padding:4,font:{size:state.period==='ytd'?9:10}}},y:{grace:'20%',grid:{color:p.grid},ticks:{precision:0,color:p.axis,font:{size:10},callback:v=>unit==='percent'?fmt(v)+'%':fmt(v)}}}}});state.charts.push(c)
+  ]},plugins:[pointValueLabelPlugin],options:{responsive:true,maintainAspectRatio:false,resizeDelay:80,interaction:{mode:'index',intersect:false},layout:{padding:{left:2,right:4,top:22,bottom:0}},plugins:{pointValueLabels:{enabled:state.showPointData,color:p.axis},legend:{display:true,position:'top',align:'end',labels:{color:p.axis,usePointStyle:false,boxWidth:24,boxHeight:2,padding:16,font:{size:10,weight:'bold'}}},tooltip:{callbacks:{label:(ctx)=>{const suffix=unit==='percent'?'%':' days';if(String(ctx.dataset.label||'').startsWith('Trend Direction')){const raw=ctx.dataset.trueTrend?.[ctx.dataIndex];return `Trend Direction: ${fmt(raw)}${suffix}`;}return `Actual: ${fmt(ctx.parsed.y)}${suffix}`;}}}},scales:{x:{offset:false,grid:{display:false},ticks:{color:p.axis,autoSkip:state.period!=='ytd',maxTicksLimit:state.period==='ytd'?12:8,maxRotation:0,minRotation:0,padding:4,font:{size:state.period==='ytd'?9:10}}},y:{grace:'20%',grid:{color:p.grid},ticks:{precision:0,color:p.axis,font:{size:10},callback:v=>unit==='percent'?fmt(v)+'%':fmt(v)}}}}});state.charts.push(c)
 }
 function renderKPIs(kpis){state.charts.forEach(c=>c.destroy());state.charts=[];const grid=$('#kpiGrid');grid.innerHTML='';const period=state.period,periodLabel=period==='ytd'?'YTD':'WEEKLY';Object.entries(kpis).forEach(([name,k])=>{const id=name.replace(/[^a-z0-9]/gi,'_'),d=k[period];const el=document.createElement('div');el.className='glass rounded-2xl border p-4 sm:p-5 overflow-hidden';el.innerHTML=`<div class="grid min-w-0 gap-4 xl:grid-cols-[280px_minmax(0,1fr)]"><div>${metricCard(k.meta.label,d.latest,d.delta,k.meta.unit)}<div class="theme-surface mt-3 rounded-xl border p-3 text-xs text-slate-500"><div class="mb-1 text-[10px] font-black tracking-widest ${period==='ytd'?'text-amber-500':'text-cyan-500'}">${periodLabel} VIEW</div><b class="text-slate-300">Interpretation:</b> ${k.meta.good==='low'?'Lower trend is favorable.':'Track against service level and inventory objectives.'}</div></div><div class="kpi-visual min-w-0"><div class="mb-1 flex items-center justify-between"><div class="text-[10px] font-black tracking-widest ${period==='ytd'?'text-amber-500':'text-cyan-500'}">${periodLabel} · ACTUAL + TREND</div><div class="text-[10px] text-slate-500">${period==='ytd'?'Month view · fits screen':'Weekly view'}</div></div><div class="kpi-chart min-w-0 w-full"><canvas id="c_${id}"></canvas></div></div></div>`;grid.appendChild(el);makeCombinedChart(el.querySelector(`#c_${id}`),d.labels,d.values,d.trend,k.meta.unit)});}
 function renderArea(d){const s=d.summary;$('#areaCards').innerHTML=[['Class A',s.class_rates.A],['Class B',s.class_rates.B],['Class C',s.class_rates.C],['Overall Avg',s.overall_avg]].map(x=>miniCard(x[0],fmt(x[1]),'%')).join('');$('#areaRanking').innerHTML=d.ranking.map((r,i)=>`<div class="theme-row grid grid-cols-[32px_1fr_auto] items-center gap-2 rounded-xl border px-3 py-2"><div class="text-xs font-black ${i<3?'text-red-500':'text-slate-600'}">${i+1}</div><div><div class="text-xs font-bold">${r.area}</div><div class="mt-1 text-[10px] text-slate-500">A ${fmt(r.class_a)}% • B ${fmt(r.class_b)}% • C ${fmt(r.class_c)}%</div></div><div class="text-sm font-black ${i<3?'text-red-500':''}">${fmt(r.overall_avg)}%</div></div>`).join('');$('#branchClassAScope').textContent=d.selected==='Overall'?'All branches · sorted highest to lowest':`${d.selected} branches · sorted highest to lowest`;$('#branchClassARanking').innerHTML=(d.branch_class_a||[]).map((r,i)=>`<div class="theme-row grid grid-cols-[32px_1fr_auto] items-center gap-2 rounded-xl border px-3 py-2"><div class="text-xs font-black ${i<5?'text-red-500':'text-slate-600'}">${i+1}</div><div><div class="text-xs font-bold">${r.branch}</div><div class="mt-1 text-[10px] text-slate-500">${r.area||'—'} • ${r.class_a_counts.stockout}/${r.class_a_counts.status_count} Class A status</div></div><div class="text-sm font-black ${i<5?'text-red-500':'text-cyan-500'}">${fmt(r.class_a)}%</div></div>`).join('')||'<div class="py-8 text-center text-xs text-slate-600">No branch Class A data for this Area.</div>'}
@@ -171,7 +194,7 @@ function setTheme(theme){state.theme=theme;document.documentElement.dataset.them
 async function init(){const r=await fetch('/api/bootstrap');const d=await r.json();state.boot=d;$('#lastRefresh').textContent='Refreshed '+new Date(d.generated_at).toLocaleString();$('#areaFilter').innerHTML=d.areas.map(a=>`<option>${a}</option>`).join('');$('#branchFilter').innerHTML=d.branches.map(b=>`<option>${b}</option>`).join('');$('#simBranch').innerHTML=d.branches.map(b=>`<option>${b}</option>`).join('');renderKPIs(d.kpis);renderArea(d.area);renderBranch(d.branch);$('#branchFilter').value=d.branch.branch;$('#simBranch').value=d.branch.branch;await populateModels()}
 $$('.mainTab').forEach(btn=>btn.onclick=()=>{$$('.mainTab').forEach(b=>b.classList.remove('tab-active'));btn.classList.add('tab-active');const sim=btn.dataset.tab==='simulator';$('#dashboardTab').classList.toggle('hidden',sim);$('#simulatorTab').classList.toggle('hidden',!sim)});
 $$('.classTab').forEach(btn=>btn.onclick=()=>{state.classFilter=btn.dataset.class;renderClassModels()});
-$('#themeBtn').onclick=()=>setTheme(state.theme==='dark'?'light':'dark');syncThemeButton();
+$('#themeBtn').onclick=()=>setTheme(state.theme==='dark'?'light':'dark');syncThemeButton();syncPointDataButton();$('#pointDataBtn').onclick=()=>setPointDataVisibility(!state.showPointData);
 if(isAdmin){
   const actionBtn=$('#adminActionsBtn'),actionMenu=$('#adminActionsMenu');
   actionBtn.onclick=(e)=>{e.stopPropagation();actionMenu.classList.toggle('hidden')};

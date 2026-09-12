@@ -4,7 +4,7 @@ A responsive Python + HTML + Tailwind dashboard built around the supplied `MC Da
 
 ## What is included
 
-- A **YTD / Weekly dropdown selector** so only one KPI period is displayed at a time, with Actual and Trend together in the **same chart**, with a **straight directional regression Trend line** kept visually above Actual to prevent overlap, for:
+- A **YTD / Weekly dropdown selector** so only one KPI period is displayed at a time, with Actual and Trend together in the **same chart**, with a **straight directional regression Trend line** kept visually above Actual to prevent overlap. A **Show Data / Hide Data** toggle controls rounded value labels above every Actual KPI point, for:
   - MC Class A DoI
   - MUTI MC DoI
   - Overall Class A Stock-Out Rate
@@ -144,3 +144,14 @@ Only the Trend presentation was changed; the dashboard layout and visual design 
 - A single constant vertical display offset keeps the whole trend line above Actual while preserving its straight slope.
 - Legend wording automatically shows `Trend Direction ↑`, `Trend Direction ↓`, or `Trend Direction →`.
 - YTD/Weekly data, formulas, filters, layout, colors, Dark/Light Mode, Model Intelligence, Area/Branch sections, Admin Actions, and exports are otherwise unchanged.
+
+
+## v1.7 — Point Data Label Toggle
+
+- Added a **Show Data / Hide Data** button beside the KPI Period selector.
+- The toggle applies to all Executive KPI line graphs at once.
+- **Show Data** draws the rounded Actual value directly above every Actual point.
+- **Hide Data** removes only the visible point values; Actual/Trend lines, point markers, tooltips, filters, and calculations remain unchanged.
+- Trend Direction remains marker-free and does not receive point-value labels.
+- The setting is remembered in the browser using `localStorage`.
+- No other dashboard layout or design was changed.
