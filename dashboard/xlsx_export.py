@@ -30,9 +30,6 @@ def _row(r: int, cells: Iterable[str], height: int | None = None) -> str:
 
 def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]]) -> bytes:
     now = datetime.now().astimezone()
-    total_qty = _whole(sum(float(i.get("requested_qty", 0) or 0) for i in items))
-    risk = sum(1 for i in items if str(i.get("stock_status", "")).lower() in {"stockout", "critical", "re-order", "reorder"})
-
     rows = []
     rows.append(_row(1, [_cell("A1", "BRANCH REQUEST STATUS REPORT", 1)], 24))
     rows.append(_row(2, [_cell("A2", "MUTI MC SCM Executive Control Tower • Branch Request Report", 2)], 18))
@@ -40,13 +37,10 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
     rows.append(_row(4, [_cell("A4", "REQUESTING BRANCH", 3), _cell("C4", branch, 4), _cell("F4", "REPORT GENERATED", 3), _cell("H4", now.strftime("%d %b %Y • %I:%M %p"), 4)], 18))
     rows.append(_row(5, [_cell("A5", "AREA", 3), _cell("C5", area, 4)], 18))
     rows.append(_row(6, [], 8))
-    rows.append(_row(7, [_cell("A7", "REQUESTED ITEMS", 3), _cell("C7", "TOTAL REQUEST QTY", 3), _cell("F7", "RISK ITEMS", 3)], 18))
-    rows.append(_row(8, [_cell("A8", len(items), 5, True), _cell("C8", total_qty, 5, True), _cell("F8", risk, 5, True)], 22))
-    rows.append(_row(9, [], 8))
 
     headers = ["NO.", "MODEL", "CLASS", "INVENTORY", "REQUEST QTY", "STOCK STATUS", "CURRENT DoI", "NEW DoI", "REMARKS"]
-    rows.append(_row(10, [_cell(f"{chr(65+i)}10", h, 6) for i, h in enumerate(headers)], 22))
-    start = 11
+    rows.append(_row(7, [_cell(f"{chr(65+i)}7", h, 6) for i, h in enumerate(headers)], 22))
+    start = 8
     for idx, item in enumerate(items, 1):
         r = start + idx - 1
         vals = [
@@ -65,7 +59,7 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
     rows.append(_row(sig, [_cell(f"A{sig}", "__________________________", 9), _cell(f"D{sig}", "__________________________", 9), _cell(f"G{sig}", "____________", 9)], 18))
     rows.append(_row(sig + 1, [_cell(f"A{sig+1}", "Prepared / Reviewed By", 10), _cell(f"D{sig+1}", "Approved By", 10), _cell(f"G{sig+1}", "Date", 10)], 16))
 
-    merges = ["A1:I1", "A2:I2", "A4:B4", "C4:E4", "F4:G4", "H4:I4", "A5:B5", "C5:E5", "A7:B7", "C7:E7", "F7:G7", "A8:B8", "C8:E8", "F8:G8", f"A{sig}:C{sig}", f"D{sig}:F{sig}", f"G{sig}:I{sig}", f"A{sig+1}:C{sig+1}", f"D{sig+1}:F{sig+1}", f"G{sig+1}:I{sig+1}"]
+    merges = ["A1:I1", "A2:I2", "A4:B4", "C4:E4", "F4:G4", "H4:I4", "A5:B5", "C5:E5", f"A{sig}:C{sig}", f"D{sig}:F{sig}", f"G{sig}:I{sig}", f"A{sig+1}:C{sig+1}", f"D{sig+1}:F{sig+1}", f"G{sig+1}:I{sig+1}"]
 
     sheet_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -81,7 +75,7 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
 <mergeCells count="{len(merges)}">{''.join(f'<mergeCell ref="{m}"/>' for m in merges)}</mergeCells>
 <printOptions horizontalCentered="1" verticalCentered="0"/>
 <pageMargins left="0.25" right="0.25" top="0.35" bottom="0.35" header="0.15" footer="0.15"/>
-<pageSetup orientation="portrait" paperSize="9" fitToWidth="1" fitToHeight="0" horizontalDpi="300" verticalDpi="300"/>
+<pageSetup orientation="portrait" paperSize="1" fitToWidth="1" fitToHeight="0" horizontalDpi="300" verticalDpi="300"/>
 </worksheet>'''
 
     styles_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -141,7 +135,7 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
     wb_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheets><sheet name="Branch Request" sheetId="1" r:id="rId1"/></sheets>
-<definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">'Branch Request'!$A$1:$I${sig+1}</definedName><definedName name="_xlnm.Print_Titles" localSheetId="0">'Branch Request'!$10:$10</definedName></definedNames>
+<definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">'Branch Request'!$A$1:$I${sig+1}</definedName><definedName name="_xlnm.Print_Titles" localSheetId="0">'Branch Request'!$7:$7</definedName></definedNames>
 </workbook>'''
     wb_rels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -197,7 +191,7 @@ def build_delivery_plan_xlsx(
     weekly_analysis: Dict[str, Dict[str, Any]],
     schedule: List[Dict[str, Any]],
 ) -> bytes:
-    """Build a highly formatted, A4 landscape, print-ready Delivery Plan workbook.
+    """Build a highly formatted, Letter landscape, print-ready Delivery Plan workbook.
 
     Sheet 1 is the selected day's operational dispatch plan. Sheet 2 is the complete
     weekly truck schedule enriched with allocation and utilization results.
@@ -364,7 +358,7 @@ def build_delivery_plan_xlsx(
 <mergeCells count="{len(merges1)}">{''.join(f'<mergeCell ref="{m}"/>' for m in merges1)}</mergeCells>
 <printOptions horizontalCentered="1" verticalCentered="0"/>
 <pageMargins left="0.2" right="0.2" top="0.35" bottom="0.35" header="0.15" footer="0.15"/>
-<pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0" horizontalDpi="300" verticalDpi="300"/>
+<pageSetup orientation="landscape" paperSize="1" fitToWidth="1" fitToHeight="0" horizontalDpi="300" verticalDpi="300"/>
 </worksheet>'''
 
     # ---------------- Sheet 2: Weekly Schedule ----------------
@@ -411,7 +405,7 @@ def build_delivery_plan_xlsx(
 <cols>{cols_xml2}</cols><sheetData>{''.join(rows2)}</sheetData>
 <mergeCells count="{len(merges2)}">{''.join(f'<mergeCell ref="{m}"/>' for m in merges2)}</mergeCells>
 <printOptions horizontalCentered="1" verticalCentered="0"/><pageMargins left="0.2" right="0.2" top="0.35" bottom="0.35" header="0.15" footer="0.15"/>
-<pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0" horizontalDpi="300" verticalDpi="300"/>
+<pageSetup orientation="landscape" paperSize="1" fitToWidth="1" fitToHeight="0" horizontalDpi="300" verticalDpi="300"/>
 </worksheet>'''
 
     styles_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -452,8 +446,8 @@ def build_delivery_plan_xlsx(
 <xf numFmtId="0" fontId="6" fillId="3" borderId="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="5" fillId="4" borderId="1" xfId="0"><alignment horizontal="center" vertical="center"/></xf>
 <xf numFmtId="0" fontId="6" fillId="2" borderId="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-<xf numFmtId="0" fontId="3" fillId="5" borderId="1" xfId="0"><alignment vertical="center" wrapText="1"/></xf>
-<xf numFmtId="0" fontId="3" fillId="6" borderId="1" xfId="0"><alignment vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="3" fillId="5" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="3" fillId="6" borderId="1" xfId="0"><alignment vertical="center"/></xf>
 <xf numFmtId="0" fontId="8" fillId="7" borderId="1" xfId="0"><alignment vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="9" fillId="8" borderId="1" xfId="0"><alignment vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="7" fillId="9" borderId="1" xfId="0"><alignment vertical="center" wrapText="1"/></xf>
@@ -521,3 +515,237 @@ def _num_local(v: Any) -> float:
         return float(v or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def build_management_order_xlsx(data: Dict[str, Any]) -> bytes:
+    """Build a print-ready Management Order Plan workbook with one sheet per Brand.
+
+    v2.15: ordered items are grouped into separate Brand worksheets. Printable columns
+    are Line No., Brand, Model, Unit Cost, Inv., DoI, Stock Status, PO Bal., Order Qty,
+    New DoI, Total Amount and Remarks. Column widths and key alignments follow the
+    approved management print specification.
+    """
+    now = datetime.now().astimezone()
+    items = list(data.get("rows") or [])
+    selected = data.get("selected") or {}
+    title = str(data.get("title") or "Management Order Plan")
+
+    def safe_sheet_name(value: Any, used: set[str]) -> str:
+        raw = str(value or "Unspecified").strip() or "Unspecified"
+        cleaned = "".join("_" if ch in '[]:*?/\\' else ch for ch in raw).strip(" '") or "Brand"
+        base = cleaned[:31]
+        name = base
+        n = 2
+        while name.lower() in used:
+            suffix = f"_{n}"
+            name = base[: max(1, 31 - len(suffix))] + suffix
+            n += 1
+        used.add(name.lower())
+        return name
+
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for item in items:
+        brand = str(item.get("brand") or "Unspecified").strip() or "Unspecified"
+        grouped.setdefault(brand, []).append(item)
+    if not grouped:
+        grouped = {"Management Order Plan": []}
+
+    used_names: set[str] = set()
+    sheets: List[Dict[str, Any]] = []
+    widths = [10.0, 13.0, 18.0, 15.0, 9.0, 8.0, 13.0, 18.0, 12.0, 10.0, 19.0, 30.0]
+    headers = [
+        "LINE NO.", "BRAND", "MODEL", "UNIT COST", "INV.", "DoI",
+        "STOCK STATUS", "PO BAL.", "ORDER QTY", "NEW DoI", "TOTAL AMOUNT", "REMARKS",
+    ]
+
+    for brand in sorted(grouped, key=lambda x: x.lower()):
+        brand_items = grouped[brand]
+        sheet_name = safe_sheet_name(brand, used_names)
+        rows_xml: List[str] = []
+        rows_xml.append(_row(1, [_cell("A1", "MANAGEMENT ORDER PLAN", 1)], 23))
+        rows_xml.append(_row(2, [_cell("A2", title, 2)], 17))
+        rows_xml.append(_row(3, [], 5))
+        filter_bits = [f"Brand: {brand}"]
+        if selected.get("class") and selected.get("class") != "All Classes":
+            filter_bits.append(f"Class: {selected.get('class')}")
+        if selected.get("status") and selected.get("status") != "All Statuses":
+            filter_bits.append(f"Status: {selected.get('status')}")
+        if selected.get("model") and selected.get("model") != "All Models":
+            filter_bits.append(f"Model: {selected.get('model')}")
+        rows_xml.append(_row(4, [_cell("A4", " | ".join(filter_bits), 3)], 17))
+        rows_xml.append(_row(5, [], 5))
+        rows_xml.append(_row(6, [_cell(f"{_col_letter(i)}6", h, 4) for i, h in enumerate(headers, 1)], 25))
+
+        start = 7
+        order_qty_total = 0.0
+        amount_total = 0.0
+        for idx, item in enumerate(brand_items, 1):
+            r = start + idx - 1
+            odd = idx % 2 == 1
+            order_qty = float(item.get("allocation", 0) or 0)
+            total_amount = float(item.get("total_amount", 0) or 0)
+            order_qty_total += order_qty
+            amount_total += total_amount
+            vals = [
+                idx,
+                item.get("brand", ""),
+                item.get("model", ""),
+                float(item.get("unit_cost", 0) or 0),
+                _whole(item.get("inventory", 0)),
+                _whole(item.get("doi", 0)),
+                item.get("stock_status", ""),
+                _whole(item.get("po_balance", 0)),
+                _whole(order_qty),
+                _whole(item.get("new_doi", 0)),
+                total_amount,
+                item.get("remarks", ""),
+            ]
+            cells: List[str] = []
+            for c, value in enumerate(vals, 1):
+                ref = f"{_col_letter(c)}{r}"
+                if c in {1, 5, 6, 8, 9, 10}:
+                    cells.append(_cell(ref, value, 7 if odd else 8, True))
+                elif c in {4, 11}:
+                    cells.append(_cell(ref, value, 9 if odd else 10, True))
+                elif c == 7:
+                    cells.append(_cell(ref, value, 18 if odd else 19))
+                elif c == 12:
+                    cells.append(_cell(ref, value, 11 if odd else 12))
+                elif c == 3:
+                    cells.append(_cell(ref, value, 13 if odd else 14))
+                else:
+                    cells.append(_cell(ref, value, 5 if odd else 6))
+            rows_xml.append(_row(r, cells, 24))
+
+        total_row = start + max(1, len(brand_items))
+        if not brand_items:
+            rows_xml.append(_row(start, [_cell("A7", "No ordered models for this Brand.", 20)], 26))
+        rows_xml.append(_row(total_row, [
+            _cell(f"A{total_row}", "GRAND TOTAL", 15),
+            _cell(f"I{total_row}", _whole(order_qty_total), 16, True),
+            _cell(f"K{total_row}", amount_total, 17, True),
+        ], 22))
+
+        merges = ["A1:L1", "A2:L2", "A4:L4", f"A{total_row}:H{total_row}"]
+        if not brand_items:
+            merges.append("A7:L7")
+        cols_xml = "".join(f'<col min="{i}" max="{i}" width="{w}" customWidth="1"/>' for i, w in enumerate(widths, 1))
+        sheet_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="6" topLeftCell="A7" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<cols>{cols_xml}</cols>
+<sheetData>{''.join(rows_xml)}</sheetData>
+<mergeCells count="{len(merges)}">{''.join(f'<mergeCell ref="{m}"/>' for m in merges)}</mergeCells>
+<printOptions horizontalCentered="1" verticalCentered="0"/>
+<pageMargins left="0.08" right="0.08" top="0.16" bottom="0.16" header="0.05" footer="0.05"/>
+<pageSetup orientation="portrait" paperSize="1" fitToWidth="1" fitToHeight="0" horizontalDpi="300" verticalDpi="300"/>
+</worksheet>'''
+        sheets.append({"name": sheet_name, "xml": sheet_xml, "end_row": total_row})
+
+    styles_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0"/><numFmt numFmtId="165" formatCode="&quot;₱&quot;#,##0"/></numFmts>
+<fonts count="8">
+<font><sz val="7.5"/><name val="Aptos"/></font>
+<font><b/><sz val="14"/><color rgb="FFFFFFFF"/><name val="Aptos Display"/></font>
+<font><b/><sz val="7.5"/><color rgb="FFFBBF24"/><name val="Aptos"/></font>
+<font><sz val="7"/><color rgb="FF475569"/><name val="Aptos"/></font>
+<font><b/><sz val="7"/><color rgb="FFFFFFFF"/><name val="Aptos"/></font>
+<font><b/><sz val="7.5"/><color rgb="FF0F172A"/><name val="Aptos"/></font>
+<font><sz val="7"/><color rgb="FF334155"/><name val="Aptos"/></font>
+<font><b/><sz val="7.5"/><color rgb="FFFBBF24"/><name val="Aptos"/></font>
+</fonts>
+<fills count="8">
+<fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF0F172A"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF1E293B"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFF8FAFC"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFF1F5F9"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFFFBEB"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFBBF24"/></patternFill></fill>
+</fills>
+<borders count="2"><border/><border><left style="thin"><color rgb="FFE2E8F0"/></left><right style="thin"><color rgb="FFE2E8F0"/></right><top style="thin"><color rgb="FFE2E8F0"/></top><bottom style="thin"><color rgb="FFE2E8F0"/></bottom><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="21">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0"><alignment horizontal="left" vertical="center"/></xf>
+<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0"><alignment vertical="center" shrinkToFit="1"/></xf>
+<xf numFmtId="0" fontId="4" fillId="2" borderId="1" xfId="0"><alignment horizontal="center" vertical="center" shrinkToFit="1"/></xf>
+<xf numFmtId="0" fontId="5" fillId="4" borderId="1" xfId="0"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>
+<xf numFmtId="0" fontId="5" fillId="5" borderId="1" xfId="0"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>
+<xf numFmtId="164" fontId="5" fillId="4" borderId="1" xfId="0"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="164" fontId="5" fillId="5" borderId="1" xfId="0"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="165" fontId="5" fillId="4" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
+<xf numFmtId="165" fontId="5" fillId="5" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
+<xf numFmtId="0" fontId="6" fillId="4" borderId="1" xfId="0"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="6" fillId="5" borderId="1" xfId="0"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="5" fillId="4" borderId="1" xfId="0"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>
+<xf numFmtId="0" fontId="5" fillId="5" borderId="1" xfId="0"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>
+<xf numFmtId="0" fontId="4" fillId="3" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
+<xf numFmtId="164" fontId="4" fillId="3" borderId="1" xfId="0"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="165" fontId="4" fillId="3" borderId="1" xfId="0"><alignment horizontal="right" vertical="center"/></xf>
+<xf numFmtId="0" fontId="5" fillId="6" borderId="1" xfId="0"><alignment horizontal="center" vertical="center" shrinkToFit="1"/></xf>
+<xf numFmtId="0" fontId="5" fillId="6" borderId="1" xfId="0"><alignment horizontal="center" vertical="center" shrinkToFit="1"/></xf>
+<xf numFmtId="0" fontId="6" fillId="4" borderId="1" xfId="0"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>
+</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>'''
+
+    content_overrides = ''.join(
+        f'<Override PartName="/xl/worksheets/sheet{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        for i in range(1, len(sheets) + 1)
+    )
+    content_types = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+{content_overrides}
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>'''
+    rels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>'''
+
+    sheet_entries = []
+    defined_names = []
+    wb_rel_entries = []
+    for i, sh in enumerate(sheets, 1):
+        name_attr = escape(sh["name"], {'"': '&quot;'})
+        sheet_entries.append(f'<sheet name="{name_attr}" sheetId="{i}" r:id="rId{i}"/>')
+        formula_name = sh["name"].replace("'", "''")
+        defined_names.append(f'<definedName name="_xlnm.Print_Area" localSheetId="{i-1}">\'{escape(formula_name)}\'!$A$1:$L${sh["end_row"]}</definedName>')
+        defined_names.append(f'<definedName name="_xlnm.Print_Titles" localSheetId="{i-1}">\'{escape(formula_name)}\'!$6:$6</definedName>')
+        wb_rel_entries.append(f'<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{i}.xml"/>')
+    styles_rid = len(sheets) + 1
+    wb_rel_entries.append(f'<Relationship Id="rId{styles_rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>')
+    wb_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets>{''.join(sheet_entries)}</sheets>
+<definedNames>{''.join(defined_names)}</definedNames>
+</workbook>'''
+    wb_rels = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">{''.join(wb_rel_entries)}</Relationships>'''
+    stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    core = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>SCM Management Order Plan</dc:title><dc:creator>MUTI MC SCM Executive Control Tower</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">{stamp}</dcterms:created></cp:coreProperties>'''
+    app_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>SCM IDP Dashboard</Application></Properties>'''
+
+    out = BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", content_types)
+        z.writestr("_rels/.rels", rels)
+        z.writestr("xl/workbook.xml", wb_xml)
+        z.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        z.writestr("xl/styles.xml", styles_xml)
+        for i, sh in enumerate(sheets, 1):
+            z.writestr(f"xl/worksheets/sheet{i}.xml", sh["xml"])
+        z.writestr("docProps/core.xml", core)
+        z.writestr("docProps/app.xml", app_xml)
+    return out.getvalue()
+

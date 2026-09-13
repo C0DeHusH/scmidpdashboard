@@ -6,13 +6,14 @@ from io import BytesIO
 from datetime import datetime
 import os
 import shutil
+import json
 import socket
 import threading
 import time
 import webbrowser
 
 from dashboard.metrics import DashboardStore
-from dashboard.xlsx_export import build_branch_request_xlsx, build_delivery_plan_xlsx
+from dashboard.xlsx_export import build_branch_request_xlsx, build_delivery_plan_xlsx, build_management_order_xlsx
 from dashboard.ppt_export import build_presentation
 from dashboard.delivery import DeliveryStore, DAYS
 
@@ -29,6 +30,7 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 ADMIN_PASSWORD = os.environ.get("SCM_ADMIN_PASSWORD", "admin123")
 ACTIVE_IMPORT = UPLOAD_DIR / "active_import.xlsx"
+MANAGEMENT_ALLOCATIONS = STATE_ROOT / "management_allocations.json"
 store = DashboardStore(ACTIVE_IMPORT if ACTIVE_IMPORT.exists() else DATA_FILE)
 delivery_store = DeliveryStore(BASE / "data" / "delivery_master.json", STATE_ROOT / "delivery")
 delivery_store.sync_dashboard_branches(store.raw_records)
@@ -36,6 +38,55 @@ delivery_store.sync_dashboard_branches(store.raw_records)
 
 def role():
     return "admin" if session.get("is_admin") else "guest"
+
+
+def _load_management_allocations():
+    """Load persisted Management planning edits with backward compatibility.
+
+    Older releases stored only Order Quantity (and later Remarks). v2.9 allows
+    the visible source fields to be overridden without modifying the imported
+    workbook itself. The original row key remains the stable identity even when
+    Brand or Model is edited.
+    """
+    if not MANAGEMENT_ALLOCATIONS.exists():
+        return {}
+    try:
+        data = json.loads(MANAGEMENT_ALLOCATIONS.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return {}
+        out = {}
+        numeric_fields = {"quantity", "unit_cost", "inventory", "doi", "po_balance"}
+        text_fields = {"remarks", "class", "brand", "model", "stock_status"}
+        for key, value in data.items():
+            try:
+                if isinstance(value, dict):
+                    edit = {}
+                    # Backward compatibility: allocation -> quantity.
+                    if "quantity" in value or "allocation" in value:
+                        edit["quantity"] = max(0.0, float(value.get("quantity", value.get("allocation", 0)) or 0))
+                    for field in numeric_fields - {"quantity"}:
+                        if field in value:
+                            edit[field] = max(0.0, float(value.get(field) or 0))
+                    for field in text_fields:
+                        if field in value:
+                            edit[field] = str(value.get(field, "") or "").strip()
+                    if "class" in edit:
+                        edit["class"] = edit["class"].upper().replace("CLASS ", "").strip()
+                else:
+                    edit = {"quantity": max(0.0, float(value or 0))}
+                out[str(key)] = edit
+            except (TypeError, ValueError):
+                continue
+        return out
+    except Exception:
+        return {}
+
+
+def _save_management_allocations(data):
+    MANAGEMENT_ALLOCATIONS.parent.mkdir(parents=True, exist_ok=True)
+    tmp = MANAGEMENT_ALLOCATIONS.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    tmp.replace(MANAGEMENT_ALLOCATIONS)
 
 
 def admin_required(fn):
@@ -98,6 +149,119 @@ def api_status_summary():
     ))
 
 
+@app.get("/api/management")
+def api_management():
+    return jsonify(store.management_dashboard(
+        brand=request.args.get("brand", "All Brands"),
+        class_key=request.args.get("class", "All Classes"),
+        status=request.args.get("status", "All Statuses"),
+        model=request.args.get("model", "All Models"),
+        allocations=_load_management_allocations(),
+    ))
+
+
+@app.post("/admin/management/allocations")
+@admin_required
+def admin_management_allocations():
+    payload = request.get_json(force=True, silent=True) or {}
+    incoming = payload.get("allocations") or {}
+    if not isinstance(incoming, dict):
+        return jsonify({"error": "Management edits must be a key/value object."}), 400
+    current = _load_management_allocations()
+    valid_keys = {r["key"] for r in store.management_records}
+    numeric_fields = {"quantity", "unit_cost", "inventory", "po_balance"}
+    text_fields = {"remarks"}
+    updated = 0
+    for key, value in incoming.items():
+        key = str(key)
+        if key not in valid_keys or not isinstance(value, dict):
+            continue
+        edit = {k: v for k, v in dict(current.get(key) or {}).items() if k in (numeric_fields | text_fields)}
+        try:
+            for field in numeric_fields:
+                if field in value:
+                    edit[field] = max(0.0, float(value.get(field) or 0))
+            for field in text_fields:
+                if field in value:
+                    edit[field] = str(value.get(field, "") or "").strip()
+        except (TypeError, ValueError):
+            return jsonify({"error": f"Invalid numeric Management value for {key}."}), 400
+        current[key] = edit
+        updated += 1
+    _save_management_allocations(current)
+    return jsonify({"ok": True, "updated": updated, "message": f"Saved {updated} Management planning line(s)."})
+
+
+@app.post("/admin/export/management")
+@admin_required
+def admin_export_management():
+    payload = request.get_json(force=True, silent=True) or {}
+    incoming = payload.get("orders") or {}
+    if not isinstance(incoming, dict):
+        return jsonify({"error": "Management edits must be a key/value object."}), 400
+    combined = _load_management_allocations()
+    valid_keys = {r["key"] for r in store.management_records}
+    numeric_fields = {"quantity", "unit_cost", "inventory", "po_balance"}
+    text_fields = {"remarks"}
+    for key, value in incoming.items():
+        key = str(key)
+        if key not in valid_keys or not isinstance(value, dict):
+            continue
+        edit = {k: v for k, v in dict(combined.get(key) or {}).items() if k in (numeric_fields | text_fields)}
+        try:
+            for field in numeric_fields:
+                if field in value:
+                    edit[field] = max(0.0, float(value.get(field) or 0))
+            for field in text_fields:
+                if field in value:
+                    edit[field] = str(value.get(field, "") or "").strip()
+        except (TypeError, ValueError):
+            return jsonify({"error": f"Invalid numeric Management value for {key}."}), 400
+        combined[key] = edit
+
+    visible_keys = payload.get("keys") or []
+    if visible_keys and isinstance(visible_keys, list):
+        # Rebuild all effective rows first, then keep the exact rows currently
+        # visible on screen. This preserves unsaved Brand/Model/Status edits even
+        # when those edits would no longer match the pre-edit filter value.
+        data = store.management_dashboard(allocations=combined)
+        by_key = {r.get("key"): r for r in data.get("rows", [])}
+        data["rows"] = [by_key[k] for k in visible_keys if k in by_key]
+        data["selected"] = {
+            "brand": str(payload.get("brand") or "All Brands"),
+            "class": str(payload.get("class") or "All Classes"),
+            "status": str(payload.get("status") or "All Statuses"),
+            "model": str(payload.get("model") or "All Models"),
+        }
+    else:
+        data = store.management_dashboard(
+            brand=str(payload.get("brand") or "All Brands"),
+            class_key=str(payload.get("class") or "All Classes"),
+            status=str(payload.get("status") or "All Statuses"),
+            model=str(payload.get("model") or "All Models"),
+            allocations=combined,
+        )
+    # Export only actual order lines. Rows with zero Order Quantity stay on the
+    # dashboard for planning but are intentionally excluded from the order file.
+    ordered_rows = [r for r in data.get("rows", []) if float(r.get("allocation", 0) or 0) > 0]
+    if not ordered_rows:
+        return jsonify({"error": "No models with Order Quantity greater than zero to export."}), 400
+    data["rows"] = ordered_rows
+    data["summary"] = {
+        "models": len(ordered_rows),
+        "current_inventory": round(sum(float(r.get("inventory", 0) or 0) for r in ordered_rows), 4),
+        "po_balance": round(sum(float(r.get("po_balance", 0) or 0) for r in ordered_rows), 4),
+        "allocation_order": round(sum(float(r.get("allocation", 0) or 0) for r in ordered_rows), 4),
+        "grand_total": round(sum(float(r.get("total_amount", 0) or 0) for r in ordered_rows), 4),
+    }
+    xlsx = build_management_order_xlsx(data)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    return send_file(
+        BytesIO(xlsx),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"Management_Order_Plan_{stamp}.xlsx",
+    )
 
 
 @app.get("/api/delivery")
@@ -150,10 +314,11 @@ def admin_import():
 @app.get("/admin/export/pptx")
 @admin_required
 def admin_export_pptx():
-    area = request.args.get("area", "Overall")
-    branch = request.args.get("branch", "")
+    # v2.18 PowerPoint export is a branded KPI review deck: YTD, Weekly,
+    # All-Area Performance, Branch rankings and per-Branch A/B/C model details.
     data = store.bootstrap(role())
-    ppt = build_presentation(data, store.area_dashboard(area), store.branch_dashboard(branch))
+    all_branch_dashboards = [store.branch_dashboard(branch) for branch in store.branches]
+    ppt = build_presentation(data, store.area_dashboard("Overall"), store.branch_dashboard(None), all_branch_dashboards)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     return send_file(BytesIO(ppt), mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation", as_attachment=True, download_name=f"SCM_IDP_Executive_Control_Tower_{stamp}.pptx")
 
@@ -258,7 +423,7 @@ def admin_export_delivery():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "role": role(), "records": len(store.raw_records), "delivery_allocations": len(delivery_store.allocations)}
+    return {"status": "ok", "role": role(), "records": len(store.raw_records), "management_models": len(store.management_records), "delivery_allocations": len(delivery_store.allocations)}
 
 
 def _port_is_available(host: str, port: int) -> bool:

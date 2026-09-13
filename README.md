@@ -1,27 +1,69 @@
-# SCM Inventory & Distribution Planning Executive Control Tower
+# SCM Inventory & Distribution Planning Dashboard
 
-## Release: v2.6
+## Release: v2.19
 
-A responsive Python + HTML + Tailwind dashboard built around the supplied `MC Dashboard IMPORT.xlsx` structure.
+### v2.19 Presentation Detail + Management Table Theme Fix
+
+- PowerPoint KPI line graphs now show rounded data labels on each Actual point.
+- PowerPoint Branch Model Intelligence now separates Class A, Class B and Class C into separate branch/class slides instead of mixing all classes in one model table.
+- ORDER REVIEW & PLANNING table was redesigned into a stronger grouped management grid with clearer row cards, line number chips, and Reference / Order Plan / Calculated Result separation.
+- Management Model Order Table now responds correctly to Dark and Light Mode.
+
+
+### v2.18 Branded Executive Deck + Order Table Revamp
+
+- Revamped **Scheduled Truck Delivery Plan** into a cleaner command-board layout with container-responsive sections that remain readable with the sidebar expanded or collapsed.
+- Weekly schedule rows are now explicit **Trip cards** with Day / Truck / Area / Branch separated cleanly instead of visually mixing controls.
+- Imported Allocation is visually separated from its **Scheduled Dispatch mapping** (Day / Truck / Status).
+- Delivery truck-analysis and branch-priority grids now respond to actual workspace width rather than viewport width.
+- Management Order Plan Excel removes `Source: Sheet2` and the generated timestamp. The workbook keeps only the Management/Re-order title.
+- Management Excel printable columns are now: **Line No., Brand, Model, Unit Cost, Current Inventory, DoI, Stock Status, PO Balance, Order Qty, New DoI, Total Amount, Remarks**.
+- **Class and Rank are not exported**; `Line No.` is the sequence column.
+- Management Excel column widths, short headers, shrink-to-fit rules and whole-peso number formats were retuned to eliminate unreadable `#######` cells while retaining Letter Portrait / one-page-wide printing.
+
+### v2.12 presentation and export cleanup
+
+- Removed explanatory lock/edit formula text from the Management Order Plan UI.
+- Renamed sidebar actions to **Data Import** and **Export Deck**.
+- Replaced KPI interpretation prose with period **Average / High / Low** statistics.
+- Management Order Plan Excel uses narrower print margins and keeps ordinary text cells on one line; Remarks remains wrapped.
+- Branch Request Excel no longer includes the Requested Items / Total Request Qty / Risk Items summary block.
+
+
+A responsive Python + HTML + Tailwind SCM control tower for Inventory & Distribution Planning, Management Order Planning, Branch Request simulation, and schedule-first Delivery Planning.
+
+### v2.11 design and usability changes
+
+- Restored the approved **dark charcoal + gold/yellow** visual theme across the dashboard, Admin login, Management Excel styling, and PowerPoint KPI Actual-line accent.
+- Upgraded typography with **Inter** for interface/body text and **Manrope** for headings and major labels.
+- Delivery Plan is rebuilt as five separate full-width workflow sections so fields remain readable whether the sidebar is expanded or collapsed.
+- Delivery layouts use **container-aware responsiveness** based on the real workspace width rather than browser width alone.
+- Imported Allocation + Scheduled Dispatch now uses responsive cards/grids instead of a forced wide horizontal table.
+- Management Order Plan is redesigned into clearly separated **Model Reference / Current Position / Planning Inputs / Calculated Result** groups.
+- Locked workbook-reference fields in Management Order Plan: **Class, Brand, Model, DoI, Stock Status**.
+- Admin-editable Management fields: **Unit Cost, Current Inventory, PO Balance, Order Quantity, Remarks**.
+- **New DoI** and **Total Amount** stay automatic and cannot be overwritten.
+- Legacy saved overrides for locked fields are ignored, preserving the imported workbook as source of truth.
+- Management Excel download continues to include only rows where **Order Quantity > 0** and stays Letter Portrait / print-ready.
+
+## Management Order Plan formulas
+
+- `Total Amount = Unit Cost × Order Quantity`
+- `New DoI = (Current Inventory + PO Balance + Order Quantity) ÷ Avg. Daily Sale (Qty)`
+
+The updated import workbook may contain a Management/Re-order worksheet. The application auto-detects the sheet by its required headers, so it may be named `Sheet2`, `Management`, or another name.
 
 ## What is included
 
-- A **YTD / Weekly dropdown selector** so only one KPI period is displayed at a time, with Actual and Trend together in the **same chart**, with a **straight directional regression Trend line** kept visually above Actual to prevent overlap. A **Show Data / Hide Data** toggle controls rounded value labels above every Actual KPI point, for:
-  - MC Class A DoI
-  - MUTI MC DoI
-  - Overall Class A Stock-Out Rate
-  - MUTI MC Stock-Out Rate – Per Branch
-  - MUTI MC Stock-Out Rate – Overall After PO Balance
-- Area dashboard with Overall / Area filter, Class A/B/C stock-out rates, average stock-out, descending area ranking, and **Branch Class A Stock-Out Rate** ranking filtered by the selected Area.
-- Branch dashboard placed **below Area Performance**, with Class A/B/C metrics and a responsive Model Intelligence matrix showing Rank, Model, Brand, Stock Status, Inventory, Suggested Transfer, and DoI.
-- **Area-first Brand & Model Status Summary** with filters for Area, Brand, Class, Model, Stock Status, and Branch. It now shows Area × Brand × Class stock-status exposure and Area × Brand × Model × Class stock-status exposure, plus a stacked Status Distribution Graph that can be viewed by Area, Brand, or Model.
-- Branch Request Simulator with projected DoI calculation:
-  - `(Inventory + Requested Quantity) / Avg. Daily Sale (Qty)`
-- **Collapsible left sidebar navigation** replaces the top tabs. It contains Executive Dashboard, Branch Request Simulator, Delivery Plan, Dark/Light Mode, Admin Login/Logout, Dashboard Import, and PowerPoint Export. The sidebar can collapse to icon mode on desktop and opens as a drawer on mobile.
-- Guest mode is display-only.
-- Responsive layouts for desktop, tablet, and mobile.
-- All displayed numeric values use **half-up whole-number rounding**: `8.4 → 8`, `8.5 → 9`. Full source precision is retained internally for calculations.
-- No Excel installation is required on the server; the import reader uses standard XLSX XML internals.
+- YTD / Weekly KPI selector with Actual + straight directional Trend in the same chart.
+- Actual point labels hidden by default with Show Data / Hide Data toggle.
+- Area Performance and Branch Performance dashboards.
+- Area-first Brand & Model Status Summary.
+- Collapsible left sidebar with Dark/Light Mode, Admin Login/Logout, Import, PowerPoint Export, Branch Request Simulator, Management Order Plan, and Delivery Plan.
+- Schedule-first Delivery Plan with Truck/Branch schedule, Allocation Import, overload analysis, Class A loading priority, and landscape Delivery Plan export.
+- Management Order Plan with filtered planning, saved inputs, New DoI, order-value calculation, and portrait Excel export.
+- Guest mode remains view-only.
+- Half-up whole-number display rounding: `8.4 → 8`, `8.5 → 9` while calculations retain source precision.
 
 ## Stock-Out formula implemented
 
@@ -30,8 +72,6 @@ For each Area or Branch and each class:
 `Class Stock-Out Rate = Stockout rows / rows with a nonblank Stock Status (branch) in that same class`
 
 `Overall Average Stock-Out = (Class A rate + Class B rate + Class C rate) / 3`
-
-This intentionally uses the **same class** as denominator, resolving the apparent Class A / Class B denominator typo in the original written instruction and matching the later explicit Area Class A formula.
 
 ## Run locally
 
@@ -130,7 +170,7 @@ You may still force a port before launch, for example: `set PORT=8050` then `pyt
 - Redesigned Branch Model presentation into a unified **Model Intelligence** matrix with Class A/B/C selector tabs. Columns: Rank, Model, Brand, Stock Status, Inventory, Suggested Transfer, and DoI. Mobile view automatically changes to compact responsive rows.
 - PowerPoint KPI charts follow the same separated Trend-above-Actual presentation, and YTD uses month-only labels.
 - PowerPoint Branch Performance uses a unified model matrix rather than three dense class columns.
-- `BRANCH REQUEST STATUS REPORT` Excel export is configured for **A4 portrait**, one-page-wide fit, tighter margins, smaller professional fonts, print area, repeating table header, and wrapped body text for cleaner printing.
+- `BRANCH REQUEST STATUS REPORT` Excel export is configured for **Letter portrait**, one-page-wide fit, tighter margins, smaller professional fonts, print area, repeating table header, and wrapped body text for cleaner printing.
 
 
 ## Version 1.4 dashboard changes
@@ -460,7 +500,7 @@ The export follows the currently selected Analyze Day and creates a highly forma
    - Truck utilization and Truck Status
    - Recommended action
 
-Both worksheets are configured for **A4 Landscape**, **fit to one page wide**, compact print fonts, repeating print titles, tight margins, and print-ready conditional emphasis for overload / high utilization / underutilized / no-allocation conditions.
+Both worksheets are configured for **Letter Landscape**, **fit to one page wide**, compact print fonts, repeating print titles, tight margins, and print-ready conditional emphasis for overload / high utilization / underutilized / no-allocation conditions.
 
 
 ## v2.3 — Status Graph Filter + Area-Aware Searchable Weekly Schedule
@@ -543,3 +583,47 @@ The Status Distribution Graph is **record-count based**, not unit-quantity based
 - Removed **Brand Stock Status by Area & Class** from Brand & Model Status Summary.
 - Simplified **Status Distribution Graph**: removed its separate View and Stock Status controls. The graph is now always Area-based and automatically inherits the main Area / Branch / Brand / Model / Class / Stock Status filters above it.
 - **Model Stock Status by Area** remains the detailed drill-down table.
+
+## v2.11 Design & Usability Update
+
+- Restored the approved dark charcoal + gold/yellow visual theme across the dashboard, login, PowerPoint chart accent, and Management Order Plan Excel styling.
+- Upgraded typography using Inter for interface/body copy and Manrope for headings and major labels, with clearer hierarchy and tabular-number treatment.
+- Revamped Delivery Plan into five separated full-width workflow sections: Weekly Truck Schedule, Allocation Import, Daily Truck Analysis, Imported Allocation + Scheduled Dispatch, and Branch Loading Priority.
+- Delivery Plan responsiveness now uses container-aware layout rules so schedule fields and allocation fields remain readable whether the sidebar is expanded or collapsed.
+- Imported Allocation + Scheduled Dispatch no longer depends on a wide horizontal table; allocation lines render as responsive cards/grids.
+- Revamped Management Order Plan with grouped headers and a stronger distinction between locked reference data, planning inputs, and calculated results.
+- Locked/read-only in Management Order Plan: Class, Brand, Model, DoI, Stock Status.
+- Editable for Admin: Unit Cost, Current Inventory, PO Balance, Order Quantity, Remarks.
+- New DoI and Total Amount remain formula-driven.
+- Legacy saved overrides for locked fields are ignored so workbook reference fields stay authoritative.
+
+
+## v2.16 Management Order Plan readability update
+- Renamed Current Inventory display to `Inv.` in the Management Order Plan.
+- Replaced `Filtered Grand Total` with `Grand Total`.
+- Widened Stock Status, Order Qty, and New DoI columns in the print-ready Management Excel export.
+- Retained Letter Portrait, fit-to-one-page-width, narrow print margins, and order-only export behavior.
+
+## v2.16 refinements
+- Redesigned the **Order Review & Planning / Management Model Order Table** header and grouped table treatment for clearer Reference / Planning Input / Calculated Result separation.
+- Management Excel export now creates **one worksheet per Brand** whenever ordered items span multiple Brands. Single-brand exports contain one Brand-named worksheet.
+- Management Excel column widths follow the approved print specification: Line No. 10, Brand 13, Model 18, Unit Cost 15, Stock Status 13, PO Bal. 18, Total Amount 19, Remarks 30; key operational numeric columns are centered.
+- Branch Performance Area label now refreshes directly from the selected Branch and displays `Area • Branch`.
+- Replaced formula/style instructional copy under Area Performance and Executive KPI Trends with operational decision-support guidance.
+
+
+## Version 2.16 Update
+
+- PowerPoint Export now captures both YTD and Weekly KPI trends in the same deck.
+- Area Performance is exported using the Overall / All-Area view.
+- Branch Class A Stock-Out Ranking exports all branches.
+- Branch Performance exports all branches across paginated ranking slides.
+- A model priority snapshot is included to show all-branch Class A and stock-risk exceptions.
+
+
+## v2.18 Branded presentation and Order Review table
+
+- Added the Brilliant4 logo asset to the dashboard package.
+- PowerPoint Export Deck now uses the Brilliant4 logo on the cover and every section slide.
+- Presentation styling was upgraded with a stronger executive control-tower layout while preserving YTD, Weekly, Area, Branch Class A, all-Branch and model priority coverage.
+- ORDER REVIEW & PLANNING / Management Model Order Table was visually revamped into a stronger three-part review structure: Reference, Inventory Position, Order Plan and Financial Impact.

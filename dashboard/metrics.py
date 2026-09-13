@@ -86,11 +86,39 @@ class DashboardStore:
         self._lock = RLock()
         self.workbook_path = Path(workbook_path)
         self.raw_records: List[Dict[str, Any]] = []
+        self.management_records: List[Dict[str, Any]] = []
+        self.management_sheet_name: str = ""
+        self.management_title: str = "Management Order Planning"
         self.kpis: Dict[str, Dict[str, Any]] = {}
         self.areas: List[str] = []
         self.branches: List[str] = []
         self.generated_at = datetime.now()
         self.load(self.workbook_path)
+
+    @staticmethod
+    def _find_management_sheet(reader: XlsxReader) -> Tuple[Optional[str], Optional[int]]:
+        """Find the Management/Re-order sheet by its headers, not its worksheet name.
+
+        This lets users rename Sheet2 to Management (or another name) without
+        breaking the dashboard import, as long as the required columns remain.
+        """
+        needed = {
+            "Standard Description", "Class", "Brand", "Cost",
+            "Avg. Daily Sale (Qty)", "Inv. Qty Total", "DoI",
+            "Stock Status", "PO Balance", "Allocation", "DoI after PO Bal",
+        }
+        for sheet_name in reader.sheet_names:
+            if sheet_name in {"Raw", "KPI_YTD_Input", "KPI_WEEKLY_Input"}:
+                continue
+            try:
+                rows = reader.read_sheet(sheet_name).rows
+            except Exception:
+                continue
+            for header_idx in range(min(6, len(rows))):
+                headers = {_clean(x) for x in rows[header_idx] if _clean(x)}
+                if needed.issubset(headers):
+                    return sheet_name, header_idx
+        return None, None
 
     @staticmethod
     def validate(path: str | Path) -> ImportValidation:
@@ -112,7 +140,10 @@ class DashboardStore:
             missing_cols = needed - set(headers)
             if missing_cols:
                 return ImportValidation(False, "Raw sheet missing column(s): " + ", ".join(sorted(missing_cols)))
-            return ImportValidation(True, "Valid SCM dashboard import workbook.")
+            management_sheet, management_header = DashboardStore._find_management_sheet(r)
+            if management_sheet is None or management_header is None:
+                return ImportValidation(True, "Valid SCM dashboard import workbook. Management source not found; Management Order Plan will remain empty until an updated workbook is imported.")
+            return ImportValidation(True, f"Valid SCM dashboard import workbook. Management source: {management_sheet}.")
         except Exception as exc:
             return ImportValidation(False, f"Unable to read workbook: {exc}")
 
@@ -125,8 +156,11 @@ class DashboardStore:
         raw_rows = reader.read_sheet("Raw").rows
         ytd_rows = reader.read_sheet("KPI_YTD_Input").rows
         weekly_rows = reader.read_sheet("KPI_WEEKLY_Input").rows
+        management_sheet, management_header = self._find_management_sheet(reader)
+        management_rows = reader.read_sheet(management_sheet).rows if management_sheet else []
 
         records = self._parse_raw(raw_rows)
+        management_records, management_title = self._parse_management(management_rows, management_header or 0)
         kpis = {}
         for name in TARGET_KPIS:
             kpis[name] = {
@@ -138,6 +172,9 @@ class DashboardStore:
         with self._lock:
             self.workbook_path = path
             self.raw_records = records
+            self.management_records = management_records
+            self.management_sheet_name = management_sheet or ""
+            self.management_title = management_title
             self.kpis = kpis
             self.areas = sorted({r["area"] for r in records if r["area"]})
             self.branches = sorted({r["branch"] for r in records if r["branch"]})
@@ -176,6 +213,139 @@ class DashboardStore:
                 "suggested_transfer": _num(get(row, "Suggested Transfer")),
             })
         return records
+
+    def _parse_management(self, rows: List[List[Any]], header_idx: int) -> Tuple[List[Dict[str, Any]], str]:
+        if not rows or header_idx >= len(rows):
+            return [], "Management Order Planning"
+        headers = [_clean(x) for x in rows[header_idx]]
+        first_idx: Dict[str, int] = {}
+        for i, h in enumerate(headers):
+            if h and h not in first_idx:
+                first_idx[h] = i
+
+        def get(row: List[Any], header: str) -> Any:
+            i = first_idx.get(header)
+            return row[i] if i is not None and i < len(row) else None
+
+        title = "Management Order Planning"
+        if header_idx > 0 and rows[header_idx - 1]:
+            candidate = _clean(rows[header_idx - 1][0])
+            if candidate:
+                title = candidate
+
+        out: List[Dict[str, Any]] = []
+        for row in rows[header_idx + 1:]:
+            model = _clean(get(row, "Standard Description"))
+            brand = _clean(get(row, "Brand"))
+            if not model:
+                continue
+            cls = _class_key(get(row, "Class"))
+            key = f"{brand or 'Unspecified'}||{model}"
+            out.append({
+                "key": key,
+                "model": model,
+                "abc": _clean(get(row, "ABC")),
+                "rank": int(_num(get(row, "Rank"), 999999)),
+                "class": cls,
+                "class_label": _clean(get(row, "Class")) or (f"Class {cls}" if cls else ""),
+                "brand": brand or "Unspecified",
+                "unit_cost": _num(get(row, "Cost")),
+                "avg_daily_sale": _num(get(row, "Avg. Daily Sale (Qty)")),
+                "inventory": _num(get(row, "Inv. Qty Total")),
+                "doi": _num(get(row, "DoI")),
+                "stock_status": _clean(get(row, "Stock Status")),
+                "po_balance": _num(get(row, "PO Balance")),
+                "source_allocation": _num(get(row, "Allocation")),
+                "source_new_doi": _num(get(row, "DoI after PO Bal")),
+                "stock_status_after_po": _clean(get(row, "Stock Status after PO Bal")),
+                "reorder": _num(get(row, "Re-order")),
+            })
+        return out, title
+
+    def management_dashboard(
+        self,
+        brand: str = "All Brands",
+        class_key: str = "All Classes",
+        status: str = "All Statuses",
+        model: str = "All Models",
+        allocations: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Management order-planning view sourced from the workbook's Management/Re-order sheet.
+
+        v2.11 locks Class, Brand, Model, DoI and Stock Status as workbook
+        reference fields. Management may edit Unit Cost, Current Inventory,
+        PO Balance, Order Quantity and Remarks while New DoI and Total Amount
+        remain formula-driven. Saved edits stay outside the imported workbook.
+        """
+        with self._lock:
+            records = [dict(r) for r in self.management_records]
+            title = self.management_title
+            sheet_name = self.management_sheet_name
+        allocations = allocations or {}
+
+        def effective_record(r: Dict[str, Any]) -> Dict[str, Any]:
+            row = dict(r)
+            saved = allocations.get(r["key"], None)
+            remarks = ""
+            allocation = _num(r.get("source_allocation"))
+            if isinstance(saved, dict):
+                # Product classification and stock-condition fields are source-of-truth
+                # references. Only management planning inputs may override workbook values.
+                for field in ("unit_cost", "inventory", "po_balance"):
+                    if field in saved:
+                        row[field] = max(0.0, _num(saved.get(field)))
+                if "quantity" in saved or "allocation" in saved:
+                    allocation = max(0.0, _num(saved.get("quantity", saved.get("allocation", allocation))))
+                remarks = _clean(saved.get("remarks", ""))
+            elif saved is not None:
+                allocation = max(0.0, _num(saved))
+            row["allocation"] = round(allocation, 6)
+            row["remarks"] = remarks
+            inv_after_po = row["inventory"] + row["po_balance"] + allocation
+            row["inventory_after_po"] = round(inv_after_po, 6)
+            row["new_doi"] = round((inv_after_po / row["avg_daily_sale"]) if row["avg_daily_sale"] > 0 else 0.0, 6)
+            row["total_amount"] = round(row["unit_cost"] * allocation, 4)
+            return row
+
+        effective = [effective_record(r) for r in records]
+        all_brands = sorted({r["brand"] for r in effective if r["brand"]})
+        all_models = sorted({r["model"] for r in effective if r["model"]})
+        all_statuses = sorted({r["stock_status"] for r in effective if r["stock_status"]})
+
+        def matches(r: Dict[str, Any]) -> bool:
+            if brand and brand != "All Brands" and r["brand"] != brand:
+                return False
+            if class_key and class_key != "All Classes" and r["class"] != class_key:
+                return False
+            if status and status != "All Statuses" and r["stock_status"].lower() != status.lower():
+                return False
+            if model and model != "All Models" and r["model"] != model:
+                return False
+            return True
+
+        rows = [r for r in effective if matches(r)]
+        class_order = {"A": 0, "B": 1, "C": 2, None: 3}
+        rows.sort(key=lambda r: (r["brand"], class_order.get(r["class"], 3), r["rank"], r["model"]))
+        summary = {
+            "models": len(rows),
+            "current_inventory": round(sum(r["inventory"] for r in rows), 4),
+            "po_balance": round(sum(r["po_balance"] for r in rows), 4),
+            "allocation_order": round(sum(r["allocation"] for r in rows), 4),
+            "grand_total": round(sum(r["total_amount"] for r in rows), 4),
+        }
+        return {
+            "source_sheet": sheet_name,
+            "title": title,
+            "selected": {"brand": brand, "class": class_key, "status": status, "model": model},
+            "filters": {
+                "brands": ["All Brands"] + all_brands,
+                "classes": ["All Classes", "A", "B", "C"],
+                "statuses": ["All Statuses"] + all_statuses,
+                "models": ["All Models"] + all_models,
+            },
+            "summary": summary,
+            "rows": rows,
+        }
 
     def _extract_kpi(self, rows: List[List[Any]], target: str) -> Dict[str, Any]:
         idx = None
