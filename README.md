@@ -1,6 +1,6 @@
 # SCM Inventory & Distribution Planning Executive Control Tower
 
-## Release: v2.4
+## Release: v2.6
 
 A responsive Python + HTML + Tailwind dashboard built around the supplied `MC Dashboard IMPORT.xlsx` structure.
 
@@ -14,10 +14,10 @@ A responsive Python + HTML + Tailwind dashboard built around the supplied `MC Da
   - MUTI MC Stock-Out Rate – Overall After PO Balance
 - Area dashboard with Overall / Area filter, Class A/B/C stock-out rates, average stock-out, descending area ranking, and **Branch Class A Stock-Out Rate** ranking filtered by the selected Area.
 - Branch dashboard placed **below Area Performance**, with Class A/B/C metrics and a responsive Model Intelligence matrix showing Rank, Model, Brand, Stock Status, Inventory, Suggested Transfer, and DoI.
-- **Brand & Model Status Summary** with filters for Area, Branch, Brand, Model, Class, and Stock Status. It recalculates total Models, Branches, Inventory, Stock-Out Rate, Average DoI, status mix, Brand-level status exposure, and Model-level status exposure from `Stock Status (branch)`.
+- **Area-first Brand & Model Status Summary** with filters for Area, Brand, Class, Model, Stock Status, and Branch. It now shows Area × Brand × Class stock-status exposure and Area × Brand × Model × Class stock-status exposure, plus a stacked Status Distribution Graph that can be viewed by Area, Brand, or Model.
 - Branch Request Simulator with projected DoI calculation:
   - `(Inventory + Requested Quantity) / Avg. Daily Sale (Qty)`
-- Admin-only **Admin Actions dropdown** containing Excel Import and PowerPoint Export, plus request-line add and branch request Excel export.
+- **Collapsible left sidebar navigation** replaces the top tabs. It contains Executive Dashboard, Branch Request Simulator, Delivery Plan, Dark/Light Mode, Admin Login/Logout, Dashboard Import, and PowerPoint Export. The sidebar can collapse to icon mode on desktop and opens as a drawer on mobile.
 - Guest mode is display-only.
 - Responsive layouts for desktop, tablet, and mobile.
 - All displayed numeric values use **half-up whole-number rounding**: `8.4 → 8`, `8.5 → 9`. Full source precision is retained internally for calculations.
@@ -518,3 +518,28 @@ The Status Distribution Graph is **record-count based**, not unit-quantity based
 
 ### Delivery Plan presentation
 `Imported Allocation + Scheduled Dispatch` is now presented first. `Branch Loading Priority` is placed directly below it as a full-width responsive priority section for a clearer planning sequence.
+
+
+## v2.5 — Collapsible Sidebar + Area-First Brand/Model Status Intelligence
+
+- Replaced top navigation tabs with a **collapsible command sidebar**. Desktop users can expand/collapse it; mobile users get an off-canvas drawer.
+- Moved **Dark/Light Mode, Admin Login/Logout, Import Dashboard Data, and Export PowerPoint** into the sidebar.
+- Added a **minimize / hide control for the top header**. A small Show Header control restores it, maximizing dashboard viewing space. Sidebar and header preferences persist in browser local storage.
+- Revamped **Brand & Model Status Summary** into an Area-first analysis:
+  - Area × Brand × Class rows show which Brand has Stockout / Re-order / Over / other statuses in each Area.
+  - Area × Brand × Model × Class rows show the exact Model stock-status exposure within each Area.
+  - Class A / B / C remains explicit in both views.
+  - Status Distribution Graph can be switched between **By Area, By Brand, and By Model** and retains the Stock Status filter.
+  - Summary cards now include Areas, Brands, Models, Branches, Inventory, and Stock-Out Rate.
+- No changes to KPI formulas, Delivery Plan logic, request simulator logic, rounding rules, or export calculations.
+
+
+## v2.6 — Command Rail Cleanup + Simplified Status Intelligence
+
+- Removed the duplicate top-header branding/title (`MUTI MC • SUPPLY CHAIN MANAGEMENT` and `Inventory & Distribution Planning Control Tower`) to maximize dashboard viewing space.
+- Reworked the collapsible sidebar into a cleaner command rail with consistent inline SVG icons, a stronger active-state indicator, compact spacing, and icon-only collapsed mode.
+- Dark/Light Mode, Admin Login/Logout, Import Dashboard Data, and Export PowerPoint remain inside the sidebar with the new icon system.
+- On mobile, a compact hamburger/access bar replaces the removed top header and opens the sidebar drawer.
+- Removed **Brand Stock Status by Area & Class** from Brand & Model Status Summary.
+- Simplified **Status Distribution Graph**: removed its separate View and Stock Status controls. The graph is now always Area-based and automatically inherits the main Area / Branch / Brand / Model / Class / Stock Status filters above it.
+- **Model Stock Status by Area** remains the detailed drill-down table.

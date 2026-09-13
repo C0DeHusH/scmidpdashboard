@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>SCM IDP Executive Control Tower</title>
+<title>SCM IDP Dashboard</title>
 <script>
 (function(){
   const saved=localStorage.getItem('scm-theme');
@@ -51,28 +51,94 @@ html[data-theme="light"] .mainTab:not(.tab-active){background:#fff!important;col
   .model-table-head{display:none}.model-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;border:1px solid var(--border);border-radius:14px;margin:8px;background:var(--row)}
   .model-row .model-main{grid-column:1/-1}.model-row .model-status{grid-column:2;grid-row:1;text-align:right}.model-label-mobile{display:block}.model-value{margin-top:2px}.rank-cell{grid-column:1;grid-row:1}
 }
+
+/* v2.6 compact command rail — SVG icons, cleaner hierarchy, maximum canvas */
+#scmSidebar{position:fixed;inset:0 auto 0 0;z-index:60;width:272px;background:linear-gradient(180deg,var(--surface) 0%,var(--surface2) 55%,var(--surface3) 100%);border-right:1px solid var(--border);transition:width .22s ease,transform .22s ease;box-shadow:20px 0 60px var(--shadow)}
+#scmSidebar:before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:linear-gradient(90deg,#f59e0b,#fbbf24 45%,transparent)}
+#sidebarInner{height:100%;display:flex;flex-direction:column;overflow:hidden;padding:12px}
+.sidebar-brand{display:flex;align-items:center;gap:10px;padding:8px 8px 14px;border-bottom:1px solid var(--border)}
+.sidebar-brand-mark{display:flex;width:38px;min-width:38px;height:38px;align-items:center;justify-content:center;border-radius:12px;background:linear-gradient(145deg,rgba(245,158,11,.24),rgba(251,191,36,.07));border:1px solid rgba(245,158,11,.32);color:#f59e0b;box-shadow:inset 0 0 24px rgba(245,158,11,.05)}
+.sidebar-brand-mark svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.sidebar-label,.sidebar-section-label,.sidebar-role-copy{transition:opacity .14s ease,width .14s ease}
+.sidebar-section-label{padding:0 10px 7px;font-size:9px;font-weight:900;letter-spacing:.18em;text-transform:uppercase;color:var(--muted2)}
+.sidebar-nav-item,.sidebar-action{position:relative;display:flex;align-items:center;gap:11px;width:100%;border:1px solid transparent;border-radius:12px;color:var(--muted);text-align:left;white-space:nowrap;transition:background .15s ease,color .15s ease,border-color .15s ease,transform .15s ease}
+.sidebar-nav-item{padding:9px 10px;font-size:12px;font-weight:850}.sidebar-action{padding:8px 10px;font-size:11px;font-weight:800}
+.sidebar-nav-item:hover,.sidebar-action:hover{background:rgba(148,163,184,.08);color:var(--text);transform:translateX(1px)}
+.sidebar-nav-item.tab-active{background:linear-gradient(90deg,rgba(245,158,11,.17),rgba(245,158,11,.05))!important;color:#f59e0b!important;border-color:rgba(245,158,11,.28)!important}
+.sidebar-nav-item.tab-active:before{content:"";position:absolute;left:-4px;top:9px;bottom:9px;width:3px;border-radius:999px;background:#f59e0b;box-shadow:0 0 14px rgba(245,158,11,.55)}
+.sidebar-icon{display:flex;width:30px;min-width:30px;height:30px;align-items:center;justify-content:center;border-radius:9px;background:rgba(100,116,139,.10);color:currentColor}
+.sidebar-icon svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.sidebar-toggle{display:flex;width:30px;height:30px;align-items:center;justify-content:center;border:1px solid var(--border2);border-radius:9px;color:var(--muted);transition:all .15s ease}.sidebar-toggle:hover{color:#f59e0b;border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.08)}
+.sidebar-toggle svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;transition:transform .2s ease}
+#workspace{transition:padding-left .22s ease;min-width:0}
+body.sidebar-expanded #workspace{padding-left:272px}
+body.sidebar-collapsed #scmSidebar{width:76px}
+body.sidebar-collapsed #workspace{padding-left:76px}
+body.sidebar-collapsed .sidebar-label,body.sidebar-collapsed .sidebar-section-label,body.sidebar-collapsed .sidebar-role-copy{opacity:0;width:0;overflow:hidden;pointer-events:none}
+body.sidebar-collapsed .sidebar-nav-item,body.sidebar-collapsed .sidebar-action{justify-content:center;padding-left:8px;padding-right:8px;gap:0}
+body.sidebar-collapsed #sidebarBrandCopy{display:none}
+body.sidebar-collapsed .sidebar-brand{justify-content:center;padding-left:0;padding-right:0}
+body.sidebar-collapsed #sidebarToggleIcon{transform:rotate(180deg)}
+#sidebarBackdrop{display:none}
+.mobile-command-bar{display:none}
+.status-area-table{width:100%;border-collapse:separate;border-spacing:0 6px}
+.status-area-table th{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted2);padding:0 8px 5px;text-align:left;white-space:nowrap}
+.status-area-table td{padding:10px 8px;background:var(--row);border-top:1px solid var(--border);border-bottom:1px solid var(--border);font-size:11px;vertical-align:middle}
+.status-area-table td:first-child{border-left:1px solid var(--border);border-radius:10px 0 0 10px}.status-area-table td:last-child{border-right:1px solid var(--border);border-radius:0 10px 10px 0}
+@media(max-width:1023px){
+  .mobile-command-bar{display:flex}
+  body.sidebar-expanded #workspace,body.sidebar-collapsed #workspace{padding-left:0}
+  #scmSidebar{width:272px!important;transform:translateX(-105%)}
+  body.sidebar-mobile-open #scmSidebar{transform:translateX(0)}
+  body.sidebar-mobile-open #sidebarBackdrop{display:block;position:fixed;inset:0;z-index:50;background:rgba(2,6,23,.68);backdrop-filter:blur(2px)}
+  body.sidebar-collapsed .sidebar-label,body.sidebar-collapsed .sidebar-section-label,body.sidebar-collapsed .sidebar-role-copy{opacity:1;width:auto;overflow:visible;pointer-events:auto}
+  body.sidebar-collapsed #sidebarBrandCopy{display:block}
+  body.sidebar-collapsed .sidebar-nav-item,body.sidebar-collapsed .sidebar-action{justify-content:flex-start;padding:10px 12px;gap:12px}
+}
+
 </style>
 </head>
-<body class="min-h-screen antialiased">
-<div class="mx-auto max-w-[1600px] px-3 py-4 sm:px-5 lg:px-8">
-<header class="glass sticky top-2 z-40 rounded-2xl border px-4 py-3 backdrop-blur sm:px-6">
-<div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-<div><div class="text-[10px] font-black tracking-[.32em] text-amber-400">MUTI MC • SUPPLY CHAIN MANAGEMENT</div><div class="mt-1 flex flex-wrap items-center gap-3"><h1 class="text-xl font-bold sm:text-2xl">Inventory & Distribution Planning Control Tower</h1><span id="roleBadge" class="rounded-full border border-slate-700 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-300">{{ role }}</span></div><p class="mt-1 text-xs text-slate-500">Decision dashboard • Selectable YTD / Weekly KPI • Area / Branch exposure • Request simulator</p></div>
-<div class="flex flex-wrap items-center gap-2">
-<button id="themeBtn" type="button" class="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300"><span id="themeIcon">☀</span> <span id="themeLabel">Light Mode</span></button>
-{% if role == 'admin' %}
-<div id="adminActionsWrap" class="relative">
-  <button id="adminActionsBtn" type="button" class="flex items-center gap-2 rounded-xl bg-amber-400 px-3 py-2 text-xs font-black text-slate-950 hover:bg-amber-300">Admin Actions <span class="text-[10px]">▼</span></button>
-  <div id="adminActionsMenu" class="glass absolute right-0 top-full z-50 mt-2 hidden w-52 overflow-hidden rounded-xl border p-1 shadow-2xl">
-    <label class="block cursor-pointer rounded-lg px-3 py-2.5 text-xs font-bold text-slate-300 hover:bg-amber-400 hover:text-slate-950"><input id="importFile" class="hidden" type="file" accept=".xlsx">Import Data</label>
-    <button id="pptBtn" type="button" class="block w-full rounded-lg px-3 py-2.5 text-left text-xs font-bold text-slate-300 hover:bg-amber-400 hover:text-slate-950">Export PowerPoint</button>
+<body class="sidebar-expanded min-h-screen antialiased">
+<div id="sidebarBackdrop"></div>
+<aside id="scmSidebar" aria-label="SCM navigation">
+  <div id="sidebarInner">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 10h16M9 5v14M15 5v14"/></svg>
+      </div>
+      <div id="sidebarBrandCopy" class="min-w-0 flex-1"><div class="truncate text-[9px] font-black tracking-[.20em] text-amber-500">MUTI MC • SCM</div><div class="mt-0.5 truncate text-xs font-black">IDP Control Tower</div></div>
+      <button id="sidebarToggle" class="sidebar-toggle" title="Collapse sidebar" aria-label="Expand or collapse sidebar"><svg id="sidebarToggleIcon" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+    </div>
+    <div class="mt-4">
+      <div class="sidebar-section-label">Workspace</div>
+      <nav class="space-y-1">
+        <button class="mainTab sidebar-nav-item tab-active" data-tab="dashboard" title="Executive Dashboard"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="sidebar-label">Executive Dashboard</span></button>
+        <button class="mainTab sidebar-nav-item" data-tab="simulator" title="Branch Request Simulator"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3M17 17H6l3 3"/><path d="M18 7l-3 3M6 17l3-3"/></svg></span><span class="sidebar-label">Branch Request Simulator</span></button>
+        <button class="mainTab sidebar-nav-item" data-tab="delivery" title="Delivery Plan"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M3 7h11v10H3zM14 10h4l3 3v4h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg></span><span class="sidebar-label">Delivery Plan</span></button>
+      </nav>
+    </div>
+    <div class="mt-5 border-t border-slate-800 pt-4">
+      <div class="sidebar-section-label">Display &amp; Access</div>
+      <button id="themeBtn" type="button" class="sidebar-action" title="Toggle dark / light mode"><span class="sidebar-icon" id="themeIcon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></span><span id="themeLabel" class="sidebar-label">Light Mode</span></button>
+      {% if role == 'admin' %}
+      <label class="sidebar-action cursor-pointer" title="Import dashboard data"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 20h14"/></svg></span><span class="sidebar-label">Import Dashboard Data</span><input id="importFile" class="hidden" type="file" accept=".xlsx"></label>
+      <button id="pptBtn" type="button" class="sidebar-action" title="Export PowerPoint"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M5 20h14"/></svg></span><span class="sidebar-label">Export PowerPoint</span></button>
+      <form action="/logout" method="post"><button class="sidebar-action" type="submit" title="Logout Admin"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3"/><path d="M13 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6"/></svg></span><span class="sidebar-label">Logout Admin</span></button></form>
+      {% else %}
+      <a href="/login" class="sidebar-action" title="Admin Login"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M14 7l-5 5 5 5M9 12h12"/><path d="M11 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/></svg></span><span class="sidebar-label">Admin Login</span></a>
+      {% endif %}
+    </div>
+    <div class="mt-auto border-t border-slate-800 px-1 pt-3">
+      <div class="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/20 p-2"><div class="sidebar-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></div><div class="sidebar-role-copy min-w-0"><div class="text-[9px] font-black uppercase tracking-wider text-slate-600">Current Access</div><div class="text-xs font-black">{{ role|title }}</div></div></div>
+    </div>
   </div>
+</aside>
+<div id="workspace">
+<div class="mx-auto max-w-[1600px] px-3 py-4 sm:px-5 lg:px-8">
+<div class="mobile-command-bar sticky top-2 z-40 mb-3 items-center justify-between rounded-2xl border border-slate-800 bg-[var(--surface)]/95 px-3 py-2 shadow-lg backdrop-blur lg:hidden">
+  <button id="mobileSidebarBtn" type="button" class="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-700 text-slate-300" aria-label="Open navigation"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  <div class="rounded-full border border-slate-700 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-slate-400">{{ role }}</div>
 </div>
-<form action="/logout" method="post"><button class="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300">Logout</button></form>
-{% else %}<a href="/login" class="rounded-xl border border-amber-400/50 px-3 py-2 text-xs font-bold text-amber-500 hover:bg-amber-400 hover:text-slate-950">Admin Login</a>{% endif %}
-</div></div></header>
-
-<div class="mt-4 flex gap-2 overflow-x-auto pb-1 scrollbar"><button class="mainTab tab-active shrink-0 rounded-xl border border-amber-400 px-4 py-2 text-sm font-bold" data-tab="dashboard">Executive Dashboard</button><button class="mainTab shrink-0 rounded-xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-bold text-slate-300" data-tab="simulator">Branch Request Simulator</button><button class="mainTab shrink-0 rounded-xl border border-slate-800 bg-slate-900 px-4 py-2 text-sm font-bold text-slate-300" data-tab="delivery">Delivery Plan</button></div>
 
 <main id="dashboardTab" class="mt-4 space-y-5">
 <section>
@@ -106,33 +172,29 @@ html[data-theme="light"] .mainTab:not(.tab-active){background:#fff!important;col
 </section>
 
 <section class="glass rounded-2xl border p-4 sm:p-5">
-<div class="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-  <div><h2 class="text-lg font-bold">Brand &amp; Model Status Summary</h2><p class="text-xs text-slate-500">Filterable stock-status view by Brand and Model using Stock Status (branch).</p></div>
+<div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+  <div><div class="text-[10px] font-black tracking-[.18em] text-violet-500">AREA-FIRST INVENTORY STATUS INTELLIGENCE</div><h2 class="mt-1 text-lg font-bold">Brand &amp; Model Status Summary</h2><p class="mt-1 max-w-4xl text-xs text-slate-500">See which Brand and Model is Stockout, Re-order, Over, or in another stock status in every Area. Class A / B / C exposure is retained at Area + Brand + Model level.</p></div>
   <button id="statusResetBtn" type="button" class="w-full rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 lg:w-auto">Reset Filters</button>
 </div>
 <div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
   <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Area<select id="statusAreaFilter" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"></select></label>
-  <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Branch<select id="statusBranchFilter" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"></select></label>
   <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Brand<select id="statusBrandFilter" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"></select></label>
-  <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Model<select id="statusModelFilter" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"></select></label>
   <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Class<select id="statusClassFilter" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"></select></label>
+  <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Model<select id="statusModelFilter" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"></select></label>
   <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Stock Status<select id="statusStockFilter" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"></select></label>
+  <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Branch<select id="statusBranchFilter" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"></select></label>
 </div>
-<div id="statusCards" class="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5"></div>
-<div class="mt-4 rounded-xl border border-slate-800 p-3"><div class="text-[10px] font-black uppercase tracking-wider text-slate-500">Status Mix</div><div id="statusBreakdown" class="mt-2 flex flex-wrap gap-2"></div></div>
-<div class="mt-4 rounded-2xl border border-slate-800 p-3 sm:p-4">
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><div class="text-xs font-black tracking-widest text-violet-500">STATUS DISTRIBUTION GRAPH</div><p id="statusChartScope" class="mt-1 text-[10px] text-slate-500">Stock-status mix across the filtered network.</p></div><div class="grid grid-cols-2 gap-2 sm:flex sm:items-end"><label class="text-[10px] font-black uppercase tracking-wider text-slate-500">View<select id="statusChartMode" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"><option value="brand">By Brand</option><option value="model">By Model</option></select></label><label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Stock Status<select id="statusChartStockFilter" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"></select></label></div></div>
-  <div class="mt-3 h-[300px] min-w-0"><canvas id="statusSummaryChart"></canvas></div>
+<div id="statusCards" class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6"></div>
+<div class="mt-4 grid gap-4 xl:grid-cols-[1.2fr_.8fr]">
+  <div class="rounded-2xl border border-slate-800 p-3 sm:p-4">
+    <div><div class="text-xs font-black tracking-widest text-violet-500">STATUS DISTRIBUTION GRAPH</div><p id="statusChartScope" class="mt-1 text-[10px] text-slate-500">Stock-status distribution by Area using the filters above.</p></div>
+    <div class="mt-3 h-[320px] min-w-0"><canvas id="statusSummaryChart"></canvas></div>
+  </div>
+  <div class="rounded-2xl border border-slate-800 p-3 sm:p-4"><div class="text-[10px] font-black uppercase tracking-wider text-slate-500">Filtered Status Mix</div><div id="statusBreakdown" class="mt-3 flex flex-wrap gap-2"></div><div class="mt-4 rounded-xl border border-slate-800 p-3 text-[10px] leading-relaxed text-slate-500"><span class="font-black text-amber-500">How to read:</span> status counts are Branch × Model records after filters. Use Area + Class to isolate Class A/B/C exposure, then Brand or Model to identify the source of Stockout.</div></div>
 </div>
-<div class="mt-5 grid gap-5 xl:grid-cols-2">
-  <div>
-    <div class="flex items-end justify-between gap-3"><div><h3 class="text-xs font-black tracking-widest text-amber-500">BRAND STATUS SUMMARY</h3><p id="brandSummaryScope" class="mt-1 text-[10px] text-slate-500"></p></div></div>
-    <div id="brandStatusSummary" class="mt-3 max-h-[560px] space-y-2 overflow-auto pr-1 scrollbar"></div>
-  </div>
-  <div>
-    <div class="flex items-end justify-between gap-3"><div><h3 class="text-xs font-black tracking-widest text-cyan-500">MODEL STATUS SUMMARY</h3><p id="modelStatusScope" class="mt-1 text-[10px] text-slate-500"></p></div></div>
-    <div id="modelStatusSummary" class="mt-3 max-h-[560px] space-y-2 overflow-auto pr-1 scrollbar"></div>
-  </div>
+<div class="mt-5 border-t border-slate-800 pt-5">
+  <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><h3 class="text-xs font-black tracking-widest text-cyan-500">MODEL STOCK STATUS BY AREA</h3><p id="modelStatusScope" class="mt-1 text-[10px] text-slate-500"></p></div><div class="text-[10px] text-slate-600">Area → Brand → Class → Model → Stock Status</div></div>
+  <div class="mt-3 max-h-[680px] overflow-auto scrollbar"><table class="status-area-table min-w-[1100px]"><thead class="sticky top-0 z-10 bg-[var(--surface)]"><tr><th>Area</th><th>Class</th><th>Brand</th><th>Model</th><th>Branches</th><th>Inventory</th><th>Suggested</th><th>Avg DoI</th><th>Stock-Out</th><th>Status Mix</th></tr></thead><tbody id="modelStatusSummary"></tbody></table></div>
 </div>
 </section>
 
@@ -280,28 +342,26 @@ function statusMixHtml(statuses){const entries=Object.entries(statuses||{});if(!
 function populateStatusFilters(filters){
   const map=[['#statusAreaFilter',filters.areas],['#statusBranchFilter',filters.branches],['#statusBrandFilter',filters.brands],['#statusModelFilter',filters.models],['#statusClassFilter',filters.classes],['#statusStockFilter',filters.statuses]];
   map.forEach(([sel,vals])=>{$(sel).innerHTML=optionHtml(vals)});
-  const chartStatus=$('#statusChartStockFilter');
-  if(chartStatus){const current=chartStatus.value||'All Statuses';chartStatus.innerHTML=optionHtml(filters.statuses||['All Statuses']);chartStatus.value=(filters.statuses||[]).includes(current)?current:'All Statuses'}
 }
 function statusGraphColor(status){const s=String(status||'').toLowerCase();if(s.includes('stockout')||s.includes('stock out'))return '#ef4444';if(s.includes('re-order')||s.includes('re order')||s.includes('reorder'))return '#f59e0b';if(s.includes('over'))return '#22c55e';if(s.includes('critical')||s.includes('low'))return '#f97316';return state.theme==='light'?'#64748b':'#94a3b8'}
 function renderStatusChart(d){
   const canvas=$('#statusSummaryChart');if(!canvas||!d)return;if(state.statusChart){state.statusChart.destroy();state.statusChart=null}
-  const mode=$('#statusChartMode')?.value||'brand',source=(mode==='model'?d.models:d.brands)||[],chartStatus=$('#statusChartStockFilter')?.value||'All Statuses';
-  const filteredSource=chartStatus==='All Statuses'?source:source.filter(r=>Number(r.statuses?.[chartStatus]||0)>0);
-  const rows=filteredSource.slice(0,mode==='model'?15:12);
-  const allStatuses=[...new Set(rows.flatMap(r=>Object.keys(r.statuses||{})))];
-  const statuses=chartStatus==='All Statuses'?allStatuses:allStatuses.filter(st=>st===chartStatus);
-  const p=palette();$('#statusChartScope').textContent=rows.length?`${mode==='model'?'Top '+rows.length+' models':'Filtered brands'} • ${chartStatus==='All Statuses'?'all stock statuses':chartStatus}`:'No status data matches the selected filters.';
-  state.statusChart=new Chart(canvas,{type:'bar',data:{labels:rows.map(r=>mode==='model'?`${r.brand} • ${r.model}`:r.brand),datasets:statuses.map(st=>({label:st,data:rows.map(r=>Number(r.statuses?.[st]||0)),backgroundColor:statusGraphColor(st),borderWidth:0,borderRadius:4,barThickness:mode==='model'?12:18}))},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:true,position:'top',align:'end',labels:{color:p.axis,boxWidth:10,boxHeight:10,font:{size:9,weight:'bold'}}},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${fmt(c.parsed.x)}`}}},scales:{x:{stacked:true,beginAtZero:true,grid:{color:p.grid},ticks:{color:p.axis,precision:0,font:{size:9}}},y:{stacked:true,grid:{display:false},ticks:{color:p.axis,font:{size:9},autoSkip:false}}}}});
+  const rows=d.area_status||[];
+  const statuses=[...new Set(rows.flatMap(r=>Object.keys(r.statuses||{})))];
+  const p=palette();
+  const areaScope=$('#statusAreaFilter')?.value||'Overall',brandScope=$('#statusBrandFilter')?.value||'All Brands',classScope=$('#statusClassFilter')?.value||'All Classes',modelScope=$('#statusModelFilter')?.value||'All Models',statusScope=$('#statusStockFilter')?.value||'All Statuses';
+  const scopeBits=[areaScope!=='Overall'?areaScope:null,brandScope!=='All Brands'?brandScope:null,classScope!=='All Classes'?`Class ${classScope}`:null,modelScope!=='All Models'?modelScope:null,statusScope!=='All Statuses'?statusScope:null].filter(Boolean);
+  $('#statusChartScope').textContent=rows.length?`By Area • ${scopeBits.length?scopeBits.join(' • '):'all Brand / Model statuses'} • inherits the summary filters above`:'No status data matches the selected Brand & Model Summary filters.';
+  state.statusChart=new Chart(canvas,{type:'bar',data:{labels:rows.map(r=>r.area),datasets:statuses.map(st=>({label:st,data:rows.map(r=>Number(r.statuses?.[st]||0)),backgroundColor:statusGraphColor(st),borderWidth:0,borderRadius:5,barThickness:20}))},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:true,position:'top',align:'end',labels:{color:p.axis,boxWidth:10,boxHeight:10,font:{size:9,weight:'bold'}}},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${fmt(c.parsed.x)}`}}},scales:{x:{stacked:true,beginAtZero:true,grid:{color:p.grid},ticks:{color:p.axis,precision:0,font:{size:9}}},y:{stacked:true,grid:{display:false},ticks:{color:p.axis,font:{size:9},autoSkip:false}}}}});
 }
+function classPill(cls){const c=String(cls||'—').toUpperCase();const tone=c==='A'?'border-amber-500/40 bg-amber-500/10 text-amber-500':c==='B'?'border-cyan-500/40 bg-cyan-500/10 text-cyan-500':c==='C'?'border-violet-500/40 bg-violet-500/10 text-violet-500':'border-slate-700 text-slate-500';return `<span class="inline-flex rounded-full border px-2 py-1 text-[9px] font-black ${tone}">Class ${c}</span>`}
 function renderStatusSummary(d){
   state.statusData=d;const s=d.summary||{};
-  $('#statusCards').innerHTML=[['Models',s.models],['Branches',s.branches],['Inventory',s.inventory],['Stock-Out Rate',s.stockout_rate,'%'],['Avg DoI',s.avg_doi,' d']].map(x=>miniCard(x[0],fmt(x[1]),x[2]||'')).join('');
+  $('#statusCards').innerHTML=[['Areas',s.areas],['Brands',s.brands],['Models',s.models],['Branches',s.branches],['Inventory',s.inventory],['Stock-Out Rate',s.stockout_rate,'%']].map(x=>miniCard(x[0],fmt(x[1]),x[2]||'')).join('');
   $('#statusBreakdown').innerHTML=statusMixHtml(d.status_breakdown);
-  $('#brandSummaryScope').textContent=`${(d.brands||[]).length} brand${(d.brands||[]).length===1?'':'s'} • highest stock-out exposure first`;
-  $('#modelStatusScope').textContent=`${(d.models||[]).length} model${(d.models||[]).length===1?'':'s'} • grouped across filtered branch records`;
-  $('#brandStatusSummary').innerHTML=(d.brands||[]).map((r,i)=>`<div class="theme-row rounded-xl border p-3"><div class="flex items-start justify-between gap-3"><div class="min-w-0"><div class="flex items-center gap-2"><span class="text-[10px] font-black text-slate-600">#${i+1}</span><div class="truncate text-sm font-black">${r.brand}</div></div><div class="mt-1 text-[10px] text-slate-500">${fmt(r.models)} models • ${fmt(r.branches)} branches • Inventory ${fmt(r.inventory)} • Suggested ${fmt(r.suggested_transfer)}</div></div><div class="shrink-0 text-right"><div class="text-lg font-black ${Number(r.stockout_rate)>0?'text-red-500':'text-emerald-500'}">${fmt(r.stockout_rate)}%</div><div class="text-[9px] font-bold uppercase tracking-wider text-slate-500">Stock-Out</div></div></div><div class="mt-2 flex flex-wrap gap-1.5">${statusMixHtml(r.statuses)}</div></div>`).join('')||'<div class="py-10 text-center text-xs text-slate-600">No Brand data matches the selected filters.</div>';
-  $('#modelStatusSummary').innerHTML=(d.models||[]).map((r,i)=>`<div class="theme-row rounded-xl border p-3"><div class="flex items-start justify-between gap-3"><div class="min-w-0"><div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">${r.brand} • Class ${r.class}</div><div class="mt-0.5 truncate text-sm font-black">${r.model}</div><div class="mt-1 text-[10px] text-slate-500">${fmt(r.branches)} branches • Inventory ${fmt(r.inventory)} • Suggested ${fmt(r.suggested_transfer)} • Avg DoI ${fmt(r.avg_doi)}</div></div><div class="shrink-0 text-right"><div class="text-lg font-black ${Number(r.stockout_rate)>0?'text-red-500':'text-emerald-500'}">${fmt(r.stockout_rate)}%</div><div class="text-[9px] font-bold uppercase tracking-wider text-slate-500">Stock-Out</div></div></div><div class="mt-2 flex flex-wrap gap-1.5">${statusMixHtml(r.statuses)}</div></div>`).join('')||'<div class="py-10 text-center text-xs text-slate-600">No Model data matches the selected filters.</div>';
+  const am=d.area_models||[];
+  $('#modelStatusScope').textContent=`${am.length} Area × Brand × Model × Class combinations • use the filters above to isolate Area, Class, Brand, Model, Branch, or Stock Status`;
+  $('#modelStatusSummary').innerHTML=am.map(r=>`<tr><td class="font-black">${r.area||'—'}</td><td>${classPill(r.class)}</td><td class="font-bold">${r.brand||'—'}</td><td class="font-black">${r.model||'—'}</td><td>${fmt(r.branches)}</td><td class="font-black">${fmt(r.inventory)}</td><td>${fmt(r.suggested_transfer)}</td><td>${fmt(r.avg_doi)} d</td><td><div class="font-black ${Number(r.stockout_rate)>0?'text-red-500':'text-emerald-500'}">${fmt(r.stockout_rate)}%</div><div class="text-[9px] text-slate-600">${fmt(r.stockout_count)} / ${fmt(r.records)}</div></td><td><div class="flex max-w-[380px] flex-wrap gap-1">${statusMixHtml(r.statuses)}</div></td></tr>`).join('')||'<tr><td colspan="10" class="py-12 text-center text-xs text-slate-600">No Area / Model status data matches the selected filters.</td></tr>';
   renderStatusChart(d);
 }
 async function loadStatusSummary(){
@@ -313,8 +373,21 @@ function renderModel(){const m=state.model;if(!m)return;$('#modelSnapshot').inne
 function calcNewDoi(){const m=state.model,q=Number($('#requestQty').value||0);if(!m){$('#newDoi').textContent='—';return}$('#newDoi').textContent=m.avg_daily_sale>0?`${fmt((m.inventory+q)/m.avg_daily_sale)} days`:'N/A (no ADS)'}
 async function populateModels(){const b=$('#simBranch').value;const r=await fetch(`/api/branch-models?branch=${encodeURIComponent(b)}`);const d=await r.json();$('#simModel').innerHTML=d.models.map(m=>`<option>${m}</option>`).join('');await loadModel()}
 function renderRequest(){const tb=$('#requestTable'),empty=$('#requestEmpty');empty.classList.toggle('hidden',state.requests.length>0);tb.innerHTML=state.requests.map((x,i)=>`<tr class="border-b border-slate-900"><td class="px-2 py-3 font-bold">${x.model}</td><td>${x.class}</td><td>${fmt(x.inventory)}</td><td>${fmt(x.requested_qty)}</td><td class="font-bold ${statusClass(x.stock_status)}">${x.stock_status}</td><td>${fmt(x.doi)}</td><td class="font-bold text-amber-500">${typeof x.new_doi==='number'?fmt(x.new_doi):x.new_doi}</td><td class="max-w-[220px] truncate pr-2">${x.remarks||'—'}</td><td><button class="removeReq text-red-500" data-i="${i}">Remove</button></td></tr>`).join('');$$('.removeReq').forEach(b=>b.onclick=()=>{state.requests.splice(Number(b.dataset.i),1);renderRequest()})}
-function syncThemeButton(){const light=state.theme==='light';$('#themeIcon').textContent=light?'☾':'☀';$('#themeLabel').textContent=light?'Dark Mode':'Light Mode'}
+function syncThemeButton(){const light=state.theme==='light';$('#themeLabel').textContent=light?'Dark Mode':'Light Mode';const icon=$('#themeIcon');if(icon)icon.innerHTML=light?'<svg viewBox="0 0 24 24"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>':'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>'}
 function setTheme(theme){state.theme=theme;document.documentElement.dataset.theme=theme;localStorage.setItem('scm-theme',theme);syncThemeButton();if(state.boot)renderKPIs(state.boot.kpis);if(state.statusData)renderStatusChart(state.statusData)}
+function applySidebarPreference(){
+  const collapsed=localStorage.getItem('scm-sidebar-collapsed')==='1';document.body.classList.toggle('sidebar-collapsed',collapsed);document.body.classList.toggle('sidebar-expanded',!collapsed);const b=$('#sidebarToggle');if(b)b.title=collapsed?'Expand sidebar':'Collapse sidebar';
+}
+function toggleSidebar(){
+  if(window.innerWidth<1024){document.body.classList.toggle('sidebar-mobile-open');return}
+  const collapsed=!document.body.classList.contains('sidebar-collapsed');localStorage.setItem('scm-sidebar-collapsed',collapsed?'1':'0');applySidebarPreference();setTimeout(()=>window.dispatchEvent(new Event('resize')),230)
+}
+
+function initWorkspaceChrome(){
+  applySidebarPreference();
+  $('#sidebarToggle').onclick=toggleSidebar;$('#mobileSidebarBtn').onclick=()=>document.body.classList.add('sidebar-mobile-open');$('#sidebarBackdrop').onclick=()=>document.body.classList.remove('sidebar-mobile-open');
+  window.addEventListener('resize',()=>{if(window.innerWidth>=1024)document.body.classList.remove('sidebar-mobile-open')});
+}
 
 function deliveryStatusTone(status){const s=String(status||'').toUpperCase();if(s==='OVERLOAD')return 'border-red-500/50 text-red-500';if(s.includes('FULL'))return 'border-cyan-500/50 text-cyan-500';if(s==='OPTIMIZED')return 'border-emerald-500/50 text-emerald-500';if(s==='UNDERUTILIZED')return 'border-amber-500/50 text-amber-500';if(s.includes('NO ALLOCATION'))return 'border-violet-500/50 text-violet-500';return 'border-slate-700 text-slate-500'}
 function deliveryStatusBar(status){const s=String(status||'').toUpperCase();if(s==='OVERLOAD')return 'bg-red-500';if(s.includes('FULL'))return 'bg-cyan-500';if(s==='OPTIMIZED')return 'bg-emerald-500';if(s==='UNDERUTILIZED')return 'bg-amber-500';if(s.includes('NO ALLOCATION'))return 'bg-violet-500';return 'bg-slate-700'}
@@ -391,20 +464,17 @@ async function init(){
   $('#branchFilter').value=d.branch.branch;$('#simBranch').value=d.branch.branch;await populateModels();
   await loadDelivery('Monday');
 }
-$$('.mainTab').forEach(btn=>btn.onclick=()=>{$$('.mainTab').forEach(b=>b.classList.remove('tab-active'));btn.classList.add('tab-active');const tab=btn.dataset.tab;$('#dashboardTab').classList.toggle('hidden',tab!=='dashboard');$('#simulatorTab').classList.toggle('hidden',tab!=='simulator');$('#deliveryTab').classList.toggle('hidden',tab!=='delivery')});
+$$('.mainTab').forEach(btn=>btn.onclick=()=>{$$('.mainTab').forEach(b=>b.classList.remove('tab-active'));btn.classList.add('tab-active');const tab=btn.dataset.tab;$('#dashboardTab').classList.toggle('hidden',tab!=='dashboard');$('#simulatorTab').classList.toggle('hidden',tab!=='simulator');$('#deliveryTab').classList.toggle('hidden',tab!=='delivery');document.body.classList.remove('sidebar-mobile-open');window.scrollTo({top:0,behavior:'smooth'})});
 $$('.classTab').forEach(btn=>btn.onclick=()=>{state.classFilter=btn.dataset.class;renderClassModels()});
 $$('.deliveryMasterTab').forEach(btn=>btn.onclick=()=>{state.deliveryMasterTab=btn.dataset.master;renderDeliveryMaster()});
 $('#themeBtn').onclick=()=>setTheme(state.theme==='dark'?'light':'dark');syncThemeButton();syncPointDataButton();$('#pointDataBtn').onclick=()=>setPointDataVisibility(!state.showPointData);
-if(isAdmin){
-  const actionBtn=$('#adminActionsBtn'),actionMenu=$('#adminActionsMenu');
-  actionBtn.onclick=(e)=>{e.stopPropagation();actionMenu.classList.toggle('hidden')};actionMenu.onclick=e=>e.stopPropagation();document.addEventListener('click',()=>actionMenu.classList.add('hidden'));
-}
+initWorkspaceChrome();
 $('#periodFilter').onchange=e=>{state.period=e.target.value;renderKPIs(state.boot.kpis)};
 $('#areaFilter').onchange=async e=>renderArea(await (await fetch('/api/area?area='+encodeURIComponent(e.target.value))).json());
 $('#branchFilter').onchange=async e=>renderBranch(await (await fetch('/api/branch?branch='+encodeURIComponent(e.target.value))).json());
 $('#simBranch').onchange=populateModels;$('#simModel').onchange=loadModel;$('#requestQty').oninput=calcNewDoi;
 ['#statusAreaFilter','#statusBranchFilter','#statusBrandFilter','#statusModelFilter','#statusClassFilter','#statusStockFilter'].forEach(sel=>$(sel).onchange=loadStatusSummary);
-$('#statusResetBtn').onclick=()=>{$('#statusAreaFilter').value='Overall';$('#statusBranchFilter').value='All Branches';$('#statusBrandFilter').value='All Brands';$('#statusModelFilter').value='All Models';$('#statusClassFilter').value='All Classes';$('#statusStockFilter').value='All Statuses';if($('#statusChartStockFilter'))$('#statusChartStockFilter').value='All Statuses';loadStatusSummary()};$('#statusChartMode').onchange=()=>renderStatusChart(state.statusData);if($('#statusChartStockFilter'))$('#statusChartStockFilter').onchange=()=>renderStatusChart(state.statusData);
+$('#statusResetBtn').onclick=()=>{$('#statusAreaFilter').value='Overall';$('#statusBranchFilter').value='All Branches';$('#statusBrandFilter').value='All Brands';$('#statusModelFilter').value='All Models';$('#statusClassFilter').value='All Classes';$('#statusStockFilter').value='All Statuses';loadStatusSummary()};
 $('#deliveryDayFilter').onchange=async e=>await loadDelivery(e.target.value);
 if(isAdmin&&$('#exportDeliveryBtn'))$('#exportDeliveryBtn').onclick=()=>{const day=$('#deliveryDayFilter').value||'Monday';window.location=`/admin/export/delivery?day=${encodeURIComponent(day)}`};
 if(isAdmin&&$('#masterSearch'))$('#masterSearch').oninput=filterMasterRows;
@@ -424,4 +494,7 @@ if(isAdmin){
   $('#saveMasterBtn').onclick=async()=>{const settings={underutilized_pct:Number($('#settingUnder').value||75),full_pct:Number($('#settingFull').value||90),max_branches_per_truck:Number($('#settingMaxBranches').value||2)};let r=await fetch('/admin/delivery/master',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({section:'settings',rows:settings})});let d=await r.json();if(!r.ok){toast(d.error||'Settings save failed',false);return}const section=state.deliveryMasterTab;r=await fetch('/admin/delivery/master',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({section,rows:state.delivery.master[section]})});d=await r.json();if(!r.ok){toast(d.error||'Masterlist save failed',false);return}toast(`${section} masterlist saved.`);await loadDelivery($('#deliveryDayFilter').value)};
 }
 init().catch(e=>{console.error(e);toast('Dashboard failed to initialize: '+e.message,false)});
-</script></body></html>
+</script>
+</div>
+</div>
+</body></html>
