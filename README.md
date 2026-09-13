@@ -1,6 +1,27 @@
 # SCM Inventory & Distribution Planning Dashboard
 
-## Release: v2.19
+## Release: v2.24
+
+
+
+### v2.24 Delivery Week View, Batch Entry Reset & Export Sheets
+
+- **Analyze Day** now includes **Whole Week**. Whole Week aggregates all scheduled delivery days and shows every Branch Loading Priority record with its scheduled delivery day.
+- **Export Delivery Plan** now creates separate **Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday** worksheets plus **Weekly Schedule**. Each daily sheet clearly displays its Delivery Day.
+- All generated Excel exports are intentionally **unfrozen**; no frozen panes are applied.
+- After **Save Schedule**, the New Trip Assignment entry controls are cleared for the next schedule batch while saved trips remain visible.
+- After **Save** in Imported Allocation + Scheduled Dispatch, saved allocations remain persisted for analysis while the entry grid clears for the next allocation batch; subsequent batches are appended to the saved baseline.
+- Branch Loading Priority displays the scheduled delivery day in both single-day and Whole Week analysis.
+
+
+### v2.21 Motion + Status Graph Workspace
+
+- Removed the `Filtered Status Mix` card and the `How to read` block from Brand & Model Status Summary.
+- Status Distribution Graph now uses the full available section width and a taller responsive plotting area.
+- Added refined transitions for sidebar expansion, workspace switching, theme changes, filters, cards, rows, forms, and charts.
+- Added subtle entrance/refresh animations and Chart.js easing.
+- Added `prefers-reduced-motion` support so accessibility settings disable nonessential motion.
+- Added a subtle login-card entrance/theme transition.
 
 ### v2.19 Presentation Detail + Management Table Theme Fix
 
@@ -627,3 +648,32 @@ The Status Distribution Graph is **record-count based**, not unit-quantity based
 - PowerPoint Export Deck now uses the Brilliant4 logo on the cover and every section slide.
 - Presentation styling was upgraded with a stronger executive control-tower layout while preserving YTD, Weekly, Area, Branch Class A, all-Branch and model priority coverage.
 - ORDER REVIEW & PLANNING / Management Model Order Table was visually revamped into a stronger three-part review structure: Reference, Inventory Position, Order Plan and Financial Impact.
+
+
+## v2.21 — Weekly Truck Schedule Bulk Import / Export
+- Weekly Truck Schedule now has **Import Schedule**, **Export Template**, and **Save Schedule** actions.
+- Export Template downloads the current schedule in an import-compatible Excel layout using columns **Day, Truck, Area, Branch**.
+- The template can be edited in Excel and imported back in bulk.
+- Import accepts `.xlsx`, `.xlsm`, and `.csv`.
+- Import validates Day, active Truck, active Branch, duplicate Branch assignments, and the configured maximum branches per truck/day.
+- Area is reconciled against Branch Master; mismatched Area values are corrected with a warning.
+- Import replaces the saved weekly schedule only when at least one valid row is found; invalid files do not erase the current schedule.
+
+## v2.22 — Delivery Control Board Clear Actions
+
+Admin now has three protected clear actions in **DELIVERY CONTROL BOARD → Scheduled Truck Delivery Plan**:
+
+- **Clear Board** — clears the saved Weekly Truck Schedule and all imported/manual allocation rows.
+- **Clear Schedule** — clears only the Weekly Truck Schedule.
+- **Clear Allocations** — clears only imported/manual allocation rows.
+
+Every clear action requires confirmation, saves the cleared state immediately, refreshes Daily Truck Analysis / Scheduled Dispatch / Branch Loading Priority, and **never clears Truck, Model or Branch masterlists**.
+
+
+## v2.23 — Allocation Model & Branch Dropdowns
+
+- Imported Allocation + Scheduled Dispatch now uses dropdown lists for **Model** and **Branch** in Admin mode.
+- Model choices come from the Delivery Model masterlist.
+- Branch choices come from active Delivery Branch master records and show the Area in the option label.
+- Changing Branch immediately recalculates the mapped Day, Truck and SCHEDULED / UNSCHEDULED status on the same allocation line.
+- The existing responsive card layout is retained so Day, Truck and schedule status remain visible without horizontal page scrolling.

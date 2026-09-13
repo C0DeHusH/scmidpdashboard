@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterable, List
 from xml.sax.saxutils import escape
 from decimal import Decimal, ROUND_HALF_UP
 import zipfile
+import re
 
 
 def _whole(value: Any) -> Any:
@@ -185,7 +186,7 @@ def _status_style(status: str, base: int = 8) -> int:
     return base
 
 
-def build_delivery_plan_xlsx(
+def _build_delivery_plan_xlsx_legacy(
     day: str,
     analysis: Dict[str, Any],
     weekly_analysis: Dict[str, Dict[str, Any]],
@@ -353,7 +354,7 @@ def build_delivery_plan_xlsx(
     sheet1_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>
-<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="10" topLeftCell="A11" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>
 <cols>{cols_xml1}</cols><sheetData>{''.join(rows1)}</sheetData>
 <mergeCells count="{len(merges1)}">{''.join(f'<mergeCell ref="{m}"/>' for m in merges1)}</mergeCells>
 <printOptions horizontalCentered="1" verticalCentered="0"/>
@@ -401,7 +402,7 @@ def build_delivery_plan_xlsx(
     sheet2_xml=f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>
-<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="6" topLeftCell="A7" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>
 <cols>{cols_xml2}</cols><sheetData>{''.join(rows2)}</sheetData>
 <mergeCells count="{len(merges2)}">{''.join(f'<mergeCell ref="{m}"/>' for m in merges2)}</mergeCells>
 <printOptions horizontalCentered="1" verticalCentered="0"/><pageMargins left="0.2" right="0.2" top="0.35" bottom="0.35" header="0.15" footer="0.15"/>
@@ -509,6 +510,104 @@ def build_delivery_plan_xlsx(
         z.writestr("docProps/app.xml", app_xml)
     return out.getvalue()
 
+
+def build_delivery_plan_xlsx(
+    day: str,
+    analysis: Dict[str, Any],
+    weekly_analysis: Dict[str, Dict[str, Any]],
+    schedule: List[Dict[str, Any]],
+) -> bytes:
+    """Build a whole-week Delivery Plan workbook with one day per worksheet.
+
+    Each Monday-Sunday worksheet is the complete operational daily plan for that day,
+    followed by a Weekly Schedule worksheet. All sheets are Letter landscape, fit one
+    page wide, and intentionally have no frozen panes.
+    """
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    daily_xml: Dict[str, str] = {}
+    styles_xml = core_xml = app_xml = weekly_xml = ""
+
+    for idx, day_name in enumerate(days):
+        day_analysis = weekly_analysis.get(day_name) or analysis
+        legacy = _build_delivery_plan_xlsx_legacy(day_name, day_analysis, weekly_analysis, schedule)
+        with zipfile.ZipFile(BytesIO(legacy), "r") as z:
+            daily_xml[day_name] = z.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            if idx == 0:
+                weekly_xml = z.read("xl/worksheets/sheet2.xml").decode("utf-8")
+                styles_xml = z.read("xl/styles.xml").decode("utf-8")
+                core_xml = z.read("docProps/core.xml").decode("utf-8")
+                app_xml = z.read("docProps/app.xml").decode("utf-8")
+
+    pane_re = re.compile(r'<pane[^>]*/>')
+    daily_xml = {k: pane_re.sub('', v) for k, v in daily_xml.items()}
+    weekly_xml = pane_re.sub('', weekly_xml)
+
+    sheet_names = days + ["Weekly Schedule"]
+    sheet_xmls = [daily_xml[d] for d in days] + [weekly_xml]
+    active_tab = days.index(day) if day in days else 0
+
+    def _last_row(xml: str) -> int:
+        rows = [int(x) for x in re.findall(r'<row r="(\d+)"', xml)]
+        return max(rows) if rows else 1
+
+    content_types = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+                     '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
+                     '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+                     '<Default Extension="xml" ContentType="application/xml"/>\n'
+                     '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>']
+    for i in range(1, len(sheet_names) + 1):
+        content_types.append(f'<Override PartName="/xl/worksheets/sheet{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>')
+    content_types.append('<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+                         '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+                         '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
+                         '</Types>')
+    content_types_xml = ''.join(content_types)
+
+    root_rels = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                 '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                 '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+                 '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
+                 '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'
+                 '</Relationships>')
+
+    sheet_nodes = ''.join(
+        f'<sheet name="{escape(name)}" sheetId="{i}" r:id="rId{i}"/>'
+        for i, name in enumerate(sheet_names, 1)
+    )
+    defined = []
+    for i, (name, xml) in enumerate(zip(sheet_names, sheet_xmls)):
+        last = _last_row(xml)
+        last_col = 'L' if name == 'Weekly Schedule' else 'M'
+        title_rows = '$1:$6' if name == 'Weekly Schedule' else '$1:$2'
+        defined.append(f'<definedName name="_xlnm.Print_Area" localSheetId="{i}">\'{name}\'!$A$1:${last_col}${last}</definedName>')
+        defined.append(f'<definedName name="_xlnm.Print_Titles" localSheetId="{i}">\'{name}\'!{title_rows}</definedName>')
+    workbook_xml = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    f'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                    f'<bookViews><workbookView activeTab="{active_tab}"/></bookViews>'
+                    f'<sheets>{sheet_nodes}</sheets><definedNames>{"".join(defined)}</definedNames></workbook>')
+
+    rel_nodes = ''.join(
+        f'<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{i}.xml"/>'
+        for i in range(1, len(sheet_names) + 1)
+    )
+    style_rid = len(sheet_names) + 1
+    workbook_rels = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                     f'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                     f'{rel_nodes}<Relationship Id="rId{style_rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+                     f'</Relationships>')
+
+    out = BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", content_types_xml)
+        z.writestr("_rels/.rels", root_rels)
+        z.writestr("xl/workbook.xml", workbook_xml)
+        z.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+        z.writestr("xl/styles.xml", styles_xml)
+        for i, xml in enumerate(sheet_xmls, 1):
+            z.writestr(f"xl/worksheets/sheet{i}.xml", xml)
+        z.writestr("docProps/core.xml", core_xml)
+        z.writestr("docProps/app.xml", app_xml)
+    return out.getvalue()
 
 def _num_local(v: Any) -> float:
     try:
@@ -633,7 +732,7 @@ def build_management_order_xlsx(data: Dict[str, Any]) -> bytes:
         sheet_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>
-<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="6" topLeftCell="A7" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>
 <cols>{cols_xml}</cols>
 <sheetData>{''.join(rows_xml)}</sheetData>
 <mergeCells count="{len(merges)}">{''.join(f'<mergeCell ref="{m}"/>' for m in merges)}</mergeCells>
@@ -749,3 +848,146 @@ def build_management_order_xlsx(data: Dict[str, Any]) -> bytes:
         z.writestr("docProps/app.xml", app_xml)
     return out.getvalue()
 
+
+
+def build_weekly_schedule_template_xlsx(
+    schedule: List[Dict[str, Any]],
+    master: Dict[str, Any],
+) -> bytes:
+    """Build an import-compatible Weekly Truck Schedule workbook.
+
+    Users can export the current schedule, edit Day / Truck / Area / Branch,
+    then import the same file back. Area is informational and is reconciled
+    against the Branch Master during import.
+    """
+    now = datetime.now().astimezone()
+    branch_area = {
+        str(b.get("branch", "")).strip().upper(): str(b.get("area", "")).strip()
+        for b in (master.get("branches", []) or [])
+        if str(b.get("branch", "")).strip()
+    }
+    valid_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    day_rank = {d: i for i, d in enumerate(valid_days)}
+    ordered = sorted(
+        [dict(x) for x in (schedule or [])],
+        key=lambda x: (
+            day_rank.get(str(x.get("day", "")).strip(), 99),
+            str(x.get("plate", "")),
+            str(x.get("branch", "")),
+        ),
+    )
+
+    rows: List[str] = []
+    rows.append(_row(1, [_cell("A1", "WEEKLY TRUCK SCHEDULE TEMPLATE", 1)], 28))
+    rows.append(_row(2, [_cell("A2", "SCM Inventory & Distribution Planning • Bulk Schedule Import / Export", 2)], 18))
+    rows.append(_row(3, [_cell("A3", "Edit Day, Truck, Area and Branch. Importing this file replaces the saved weekly schedule after validation.", 3)], 22))
+    rows.append(_row(4, [], 7))
+    headers = ["DAY", "TRUCK", "AREA", "BRANCH"]
+    rows.append(_row(5, [_cell(f"{chr(65+i)}5", h, 4) for i, h in enumerate(headers)], 22))
+    start = 6
+    for idx, item in enumerate(ordered):
+        r = start + idx
+        branch = str(item.get("branch", "") or "").strip()
+        vals = [
+            str(item.get("day", "") or "").strip(),
+            str(item.get("plate", "") or "").strip(),
+            branch_area.get(branch.upper(), str(item.get("area", "") or "").strip()),
+            branch,
+        ]
+        style = 5 if idx % 2 == 0 else 6
+        rows.append(_row(r, [_cell(f"{chr(65+i)}{r}", v, style) for i, v in enumerate(vals)], 21))
+    end_row = max(6, start + len(ordered) - 1)
+
+    sheet_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>
+<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>
+<cols>
+<col min="1" max="1" width="15" customWidth="1"/>
+<col min="2" max="2" width="18" customWidth="1"/>
+<col min="3" max="3" width="18" customWidth="1"/>
+<col min="4" max="4" width="34" customWidth="1"/>
+</cols>
+<sheetData>{''.join(rows)}</sheetData>
+<mergeCells count="3"><mergeCell ref="A1:D1"/><mergeCell ref="A2:D2"/><mergeCell ref="A3:D3"/></mergeCells>
+<autoFilter ref="A5:D{end_row}"/>
+<printOptions horizontalCentered="1" verticalCentered="0"/>
+<pageMargins left="0.25" right="0.25" top="0.35" bottom="0.35" header="0.15" footer="0.15"/>
+<pageSetup orientation="landscape" paperSize="1" fitToWidth="1" fitToHeight="0" horizontalDpi="300" verticalDpi="300"/>
+</worksheet>'''
+
+    styles_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="6">
+<font><sz val="9"/><name val="Aptos"/></font>
+<font><b/><sz val="15"/><color rgb="FFFFFFFF"/><name val="Aptos Display"/></font>
+<font><b/><sz val="8.5"/><color rgb="FFFBBF24"/><name val="Aptos"/></font>
+<font><sz val="8.5"/><color rgb="FF475569"/><name val="Aptos"/></font>
+<font><b/><sz val="9"/><color rgb="FFFFFFFF"/><name val="Aptos"/></font>
+<font><sz val="9"/><color rgb="FF0F172A"/><name val="Aptos"/></font>
+</fonts>
+<fills count="6">
+<fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF0F172A"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF1E293B"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFF8FAFC"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFF1F5F9"/><bgColor indexed="64"/></patternFill></fill>
+</fills>
+<borders count="2"><border/><border><left style="thin"><color rgb="FFE2E8F0"/></left><right style="thin"><color rgb="FFE2E8F0"/></right><top style="thin"><color rgb="FFE2E8F0"/></top><bottom style="thin"><color rgb="FFE2E8F0"/></bottom><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="7">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0"><alignment vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="4" fillId="3" borderId="1" xfId="0"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="5" fillId="4" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="5" fillId="5" borderId="1" xfId="0"><alignment vertical="center"/></xf>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>'''
+
+    content_types = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>'''
+    rels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>'''
+    wb_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="Weekly Schedule" sheetId="1" r:id="rId1"/></sheets>
+<definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">'Weekly Schedule'!$A$1:$D${end_row}</definedName><definedName name="_xlnm.Print_Titles" localSheetId="0">'Weekly Schedule'!$5:$5</definedName></definedNames>
+</workbook>'''
+    wb_rels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>'''
+    stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    core = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<dc:title>Weekly Truck Schedule Template</dc:title><dc:creator>SCM IDP Dashboard</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">{stamp}</dcterms:created></cp:coreProperties>'''
+    app_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>SCM IDP Dashboard</Application></Properties>'''
+
+    out = BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", content_types)
+        z.writestr("_rels/.rels", rels)
+        z.writestr("xl/workbook.xml", wb_xml)
+        z.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        z.writestr("xl/styles.xml", styles_xml)
+        z.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+        z.writestr("docProps/core.xml", core)
+        z.writestr("docProps/app.xml", app_xml)
+    return out.getvalue()

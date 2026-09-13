@@ -178,14 +178,16 @@ class DeliveryStore:
                 self._save_master()
 
     def bootstrap(self, day: str, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-        analysis = self.analyze(day, dashboard_records)
+        selected_day = day if day in DAYS or day == "Whole Week" else DAYS[0]
+        analysis = self.analyze_week(dashboard_records) if selected_day == "Whole Week" else self.analyze(selected_day, dashboard_records)
         with self._lock:
             master = json.loads(json.dumps(self.master))
             allocations = list(self.allocations)
             schedule = list(self.schedule)
         return {
             "days": DAYS,
-            "selected_day": day if day in DAYS else DAYS[0],
+            "analysis_days": ["Whole Week", *DAYS],
+            "selected_day": selected_day,
             "master": master,
             "allocations": allocations,
             "allocation_mapping": self.allocation_mapping(),
@@ -237,6 +239,109 @@ class DeliveryStore:
                 self.master["branches"] = sorted(by_branch.values(), key=lambda x: (x["area"], x["branch"]))
             self._save_master()
             return json.loads(json.dumps(self.master))
+
+    def import_schedule(self, path: str | Path) -> Tuple[List[Dict[str, str]], List[str]]:
+        """Import and replace the weekly truck schedule from XLSX/XLSM/CSV."""
+        path = Path(path)
+        warnings: List[str] = []
+        source_rows: List[Dict[str, Any]] = []
+        aliases = {
+            "day": {"day", "delivery day", "schedule day"},
+            "plate": {"truck", "plate", "plate no", "plate number", "truck plate"},
+            "area": {"area", "branch area"},
+            "branch": {"branch", "branch name", "destination"},
+        }
+
+        def map_headers(headers: List[Any]) -> Dict[str, int]:
+            out: Dict[str, int] = {}
+            for i, h in enumerate(headers):
+                n = _norm_header(h)
+                for key, opts in aliases.items():
+                    if n in opts and key not in out:
+                        out[key] = i
+            return out
+
+        if path.suffix.lower() == ".csv":
+            with path.open("r", encoding="utf-8-sig", newline="") as f:
+                all_rows = list(csv.reader(f))
+            header_i = None
+            col_map: Dict[str, int] = {}
+            for i, row in enumerate(all_rows[:20]):
+                m = map_headers(row)
+                if {"day", "plate", "branch"}.issubset(m):
+                    header_i, col_map = i, m
+                    break
+            if header_i is None:
+                raise ValueError("Weekly Schedule import requires Day, Truck and Branch columns.")
+            data_rows = all_rows[header_i + 1:]
+        else:
+            reader = XlsxReader(path)
+            sheet_name = "Weekly Schedule" if "Weekly Schedule" in reader.sheet_names else (reader.sheet_names[0] if reader.sheet_names else "")
+            if not sheet_name:
+                raise ValueError("The schedule workbook contains no worksheets.")
+            all_rows = reader.read_sheet(sheet_name).rows
+            header_i = None
+            col_map = {}
+            for i, row in enumerate(all_rows[:25]):
+                m = map_headers(row)
+                if {"day", "plate", "branch"}.issubset(m):
+                    header_i, col_map = i, m
+                    break
+            if header_i is None:
+                raise ValueError("Weekly Schedule import requires Day, Truck and Branch columns.")
+            data_rows = all_rows[header_i + 1:]
+
+        def val(row: List[Any], key: str) -> str:
+            idx = col_map.get(key)
+            return _clean(row[idx]) if idx is not None and idx < len(row) else ""
+
+        trucks = {_clean(t.get("plate")).upper(): t for t in self.master.get("trucks", []) if t.get("active", True) and _clean(t.get("plate"))}
+        branches = {_clean(b.get("branch")).upper(): b for b in self.master.get("branches", []) if b.get("active", True) and _clean(b.get("branch"))}
+        seen_branch = set()
+        slot_counts: Dict[Tuple[str, str], int] = defaultdict(int)
+        max_branches = int(max(1, min(2, _num(self.master.get("settings", {}).get("max_branches_per_truck"), 2))))
+
+        for n, row in enumerate(data_rows, start=(header_i or 0) + 2):
+            day_raw = val(row, "day")
+            plate_raw = val(row, "plate")
+            branch_raw = val(row, "branch")
+            area_raw = val(row, "area")
+            if not any((day_raw, plate_raw, branch_raw, area_raw)):
+                continue
+            day = next((d for d in DAYS if d.lower() == day_raw.lower()), "")
+            truck = trucks.get(plate_raw.upper())
+            branch = branches.get(branch_raw.upper())
+            if not day:
+                warnings.append(f"Row {n}: invalid Day '{day_raw}' skipped.")
+                continue
+            if not truck:
+                warnings.append(f"Row {n}: Truck '{plate_raw}' is not active/in Truck Master; skipped.")
+                continue
+            if not branch:
+                warnings.append(f"Row {n}: Branch '{branch_raw}' is not active/in Branch Master; skipped.")
+                continue
+            canonical_branch = _clean(branch.get("branch"))
+            canonical_plate = _clean(truck.get("plate"))
+            canonical_area = _clean(branch.get("area"))
+            if area_raw and canonical_area and area_raw.strip().upper() != canonical_area.upper():
+                warnings.append(f"Row {n}: Area '{area_raw}' corrected to '{canonical_area}' for {canonical_branch}.")
+            if canonical_branch.upper() in seen_branch:
+                warnings.append(f"Row {n}: duplicate Branch '{canonical_branch}' skipped; each Branch can have only one weekly slot.")
+                continue
+            slot_key = (day, canonical_plate.upper())
+            if slot_counts[slot_key] >= max_branches:
+                warnings.append(f"Row {n}: {canonical_plate} on {day} already has the maximum {max_branches} branch assignment(s); skipped.")
+                continue
+            seen_branch.add(canonical_branch.upper())
+            slot_counts[slot_key] += 1
+            source_rows.append({"day": day, "plate": canonical_plate, "branch": canonical_branch, "area": canonical_area})
+
+        if not source_rows:
+            raise ValueError("No valid Weekly Truck Schedule rows were found. The existing schedule was not changed.")
+        saved = self.update_schedule(source_rows)
+        if len(saved) != len(source_rows):
+            warnings.append("Some schedule rows were removed by final schedule validation.")
+        return saved, warnings
 
     def update_schedule(self, rows: Any) -> List[Dict[str, str]]:
         """Save the fixed weekly trip plan: Day + Truck + Branch.
@@ -387,6 +492,54 @@ class DeliveryStore:
             if old is None or _class_rank(r.get("class")) < _class_rank(old.get("class")):
                 out[key] = r
         return out
+
+    def analyze_week(self, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+        """Combine all seven saved delivery days into one whole-week analysis view."""
+        records = list(dashboard_records)
+        daily = [self.analyze(day, records) for day in DAYS]
+        assignments: List[Dict[str, Any]] = []
+        priorities: List[Dict[str, Any]] = []
+        for result in daily:
+            day_name = result.get("day", "")
+            for row in result.get("assignments", []) or []:
+                if row.get("branches"):
+                    assignments.append({**row, "day": day_name})
+            for row in result.get("branch_priorities", []) or []:
+                priorities.append({**row, "day": day_name})
+
+        total_capacity = sum(_num((x.get("summary") or {}).get("total_capacity")) for x in daily)
+        total_load = sum(_num((x.get("summary") or {}).get("total_load_index")) for x in daily)
+        priorities.sort(key=lambda x: (DAYS.index(x.get("day")) if x.get("day") in DAYS else 99, 0 if x.get("has_allocation") else 1, -_num(x.get("class_a_qty")), -_num(x.get("risk_qty")), -_num(x.get("load_index")), _clean(x.get("branch"))))
+        assignments.sort(key=lambda x: (DAYS.index(x.get("day")) if x.get("day") in DAYS else 99, _clean(x.get("plate"))))
+
+        first = daily[0] if daily else {}
+        thresholds = (first.get("thresholds") or {}) if first else {}
+        summary = {
+            "total_load_index": total_load,
+            "total_capacity": total_capacity,
+            "fleet_utilization": (total_load / total_capacity * 100.0) if total_capacity else 0.0,
+            "scheduled_branches": sum(_num((x.get("summary") or {}).get("scheduled_branches")) for x in daily),
+            "branches_with_allocation": sum(_num((x.get("summary") or {}).get("branches_with_allocation")) for x in daily),
+            "branches_without_allocation": sum(_num((x.get("summary") or {}).get("branches_without_allocation")) for x in daily),
+            "class_a_units": sum(_num((x.get("summary") or {}).get("class_a_units")) for x in daily),
+            "overloaded_trucks": sum(_num((x.get("summary") or {}).get("overloaded_trucks")) for x in daily),
+            "underutilized_trucks": sum(_num((x.get("summary") or {}).get("underutilized_trucks")) for x in daily),
+            "idle_trucks": sum(_num((x.get("summary") or {}).get("idle_trucks")) for x in daily),
+        }
+        return {
+            "day": "Whole Week",
+            "scheduled_branches": [p.get("branch", "") for p in priorities],
+            "scheduled_count": int(sum(_num(x.get("scheduled_count")) for x in daily)),
+            "scheduled_trucks": int(sum(_num(x.get("scheduled_trucks")) for x in daily)),
+            "allocation_rows": len(self.allocations),
+            "scoped_allocation_rows": int(sum(_num(x.get("scoped_allocation_rows")) for x in daily)),
+            "unscheduled_allocation_rows": int(_num(first.get("unscheduled_allocation_rows"))) if first else 0,
+            "summary": summary,
+            "assignments": assignments,
+            "branch_priorities": priorities,
+            "unassigned": list(first.get("unassigned", []) or []) if first else [],
+            "thresholds": thresholds,
+        }
 
     def analyze(self, day: str, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         """Analyze the saved truck schedule for one day against the imported allocation.

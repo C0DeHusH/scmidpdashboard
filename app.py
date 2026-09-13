@@ -13,7 +13,7 @@ import time
 import webbrowser
 
 from dashboard.metrics import DashboardStore
-from dashboard.xlsx_export import build_branch_request_xlsx, build_delivery_plan_xlsx, build_management_order_xlsx
+from dashboard.xlsx_export import build_branch_request_xlsx, build_delivery_plan_xlsx, build_management_order_xlsx, build_weekly_schedule_template_xlsx
 from dashboard.ppt_export import build_presentation
 from dashboard.delivery import DeliveryStore, DAYS
 
@@ -381,6 +381,39 @@ def admin_delivery_master():
     return jsonify({"ok": True, "master": master})
 
 
+@app.post("/admin/delivery/schedule/import")
+@admin_required
+def admin_delivery_schedule_import():
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "Select a Weekly Truck Schedule file."}), 400
+    ext = Path(f.filename or "").suffix.lower()
+    if ext not in {".xlsx", ".xlsm", ".csv"}:
+        return jsonify({"error": "Weekly Schedule import accepts .xlsx, .xlsm or .csv."}), 400
+    tmp = UPLOAD_DIR / f"weekly_schedule_candidate{ext}"
+    f.save(tmp)
+    try:
+        schedule, warnings = delivery_store.import_schedule(tmp)
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        return jsonify({"error": str(exc)}), 400
+    tmp.unlink(missing_ok=True)
+    return jsonify({"ok": True, "rows": len(schedule), "warnings": warnings[:30], "message": f"Imported and saved {len(schedule)} Weekly Truck Schedule row(s)."})
+
+
+@app.get("/admin/export/delivery-schedule-template")
+@admin_required
+def admin_export_delivery_schedule_template():
+    xlsx = build_weekly_schedule_template_xlsx(delivery_store.schedule, delivery_store.master)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    return send_file(
+        BytesIO(xlsx),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"Weekly_Truck_Schedule_Template_{stamp}.xlsx",
+    )
+
+
 @app.post("/admin/delivery/schedule")
 @admin_required
 def admin_delivery_schedule():
@@ -403,21 +436,44 @@ def admin_delivery_allocations():
     return jsonify({"ok": True, "allocations": allocations})
 
 
+@app.post("/admin/delivery/clear")
+@admin_required
+def admin_delivery_clear():
+    payload = request.get_json(force=True, silent=True) or {}
+    target = str(payload.get("target", "all")).strip().lower()
+    if target not in {"all", "schedule", "allocations"}:
+        return jsonify({"error": "Clear target must be all, schedule or allocations."}), 400
+    try:
+        if target in {"all", "schedule"}:
+            delivery_store.update_schedule([])
+        if target in {"all", "allocations"}:
+            delivery_store.replace_allocations([])
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+    messages = {
+        "all": "Delivery Control Board cleared. Schedule and allocations are now empty; masterlists were preserved.",
+        "schedule": "Weekly Truck Schedule cleared. Delivery masterlists and allocations were preserved.",
+        "allocations": "All delivery allocation rows cleared. Weekly Truck Schedule and masterlists were preserved.",
+    }
+    return jsonify({"ok": True, "target": target, "message": messages[target]})
+
+
 @app.get("/admin/export/delivery")
 @admin_required
 def admin_export_delivery():
-    day = request.args.get("day", "Monday")
-    if day not in DAYS:
-        day = "Monday"
-    current = delivery_store.analyze(day, store.raw_records)
+    day = request.args.get("day", "Whole Week")
+    if day not in DAYS and day != "Whole Week":
+        day = "Whole Week"
     weekly = {d: delivery_store.analyze(d, store.raw_records) for d in DAYS}
+    current = delivery_store.analyze_week(store.raw_records) if day == "Whole Week" else weekly[day]
     xlsx = build_delivery_plan_xlsx(day, current, weekly, delivery_store.schedule)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    safe_day = day.replace(" ", "_")
     return send_file(
         BytesIO(xlsx),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name=f"Delivery_Plan_{day}_{stamp}.xlsx",
+        download_name=f"Delivery_Plan_{safe_day}_{stamp}.xlsx",
     )
 
 

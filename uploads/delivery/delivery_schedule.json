@@ -1,17 +1,52 @@
 [
   {
     "day": "Monday",
-    "plate": "MAD 2439",
-    "branch": "MUTI BANGA"
-  },
-  {
-    "day": "Tuesday",
-    "plate": "NBQ 9462",
-    "branch": "HONDA MARAMAG"
-  },
-  {
-    "day": "Tuesday",
     "plate": "NFJ 1986",
-    "branch": "HONDA ISULAN"
+    "branch": "HONDA SURALLAH"
+  },
+  {
+    "day": "Monday",
+    "plate": "NFJ 1986",
+    "branch": "MUTI SURALLAH"
+  },
+  {
+    "day": "Tuesday",
+    "plate": "MAD 2439",
+    "branch": "MUTI CABANTIAN"
+  },
+  {
+    "day": "Tuesday",
+    "plate": "MAD 2439",
+    "branch": "MUTI ECOLAND"
+  },
+  {
+    "day": "Wednesday",
+    "plate": "NHE 4554",
+    "branch": "MUTI KABACAN"
+  },
+  {
+    "day": "Wednesday",
+    "plate": "NHE 4554",
+    "branch": "MUTI MIDSAYAP"
+  },
+  {
+    "day": "Thursday",
+    "plate": "NHE 4604",
+    "branch": "MUTI BANSALAN"
+  },
+  {
+    "day": "Thursday",
+    "plate": "NHE 4604",
+    "branch": "MUTI DIGOS"
+  },
+  {
+    "day": "Friday",
+    "plate": "NFJ 1986",
+    "branch": "MUTI DON CARLOS"
+  },
+  {
+    "day": "Friday",
+    "plate": "NFJ 1986",
+    "branch": "MUTI QUEZON"
   }
 ]
