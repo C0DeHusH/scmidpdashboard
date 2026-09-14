@@ -15,6 +15,13 @@ def _whole(value: Any) -> Any:
     return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
+def _doi_whole(value: Any) -> Any:
+    if not isinstance(value, (int, float)):
+        return value
+    import math
+    return int(math.ceil(max(0.0, float(value))))
+
+
 def _cell(ref: str, value: Any, style: int = 0, num: bool = False) -> str:
     if value is None:
         return f'<c r="{ref}" s="{style}"/>'
@@ -46,8 +53,8 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
         r = start + idx - 1
         vals = [
             idx, item.get("model", ""), item.get("class", ""), _whole(item.get("inventory", 0)),
-            _whole(item.get("requested_qty", 0)), item.get("stock_status", ""), _whole(item.get("doi", 0)),
-            _whole(item.get("new_doi", "N/A")), item.get("remarks", ""),
+            _whole(item.get("requested_qty", 0)), item.get("stock_status", ""), _doi_whole(item.get("doi", 0)),
+            _doi_whole(item.get("new_doi", "N/A")), item.get("remarks", ""),
         ]
         cells = []
         for c, value in enumerate(vals):
@@ -709,11 +716,11 @@ def build_management_order_xlsx(data: Dict[str, Any]) -> bytes:
                 item.get("model", ""),
                 float(item.get("unit_cost", 0) or 0),
                 _whole(item.get("inventory", 0)),
-                _whole(item.get("doi", 0)),
+                _doi_whole(item.get("doi", 0)),
                 item.get("stock_status", ""),
                 _whole(item.get("po_balance", 0)),
                 _whole(order_qty),
-                _whole(item.get("new_doi", 0)),
+                _doi_whole(item.get("new_doi", 0)),
                 total_amount,
                 item.get("remarks", ""),
             ]

@@ -41,79 +41,19 @@
       "index_size": 1.0
     },
     {
+      "model": "ADV160",
+      "index_size": 1.5
+    },
+    {
+      "model": "ADV160 ROADSYNC",
+      "index_size": 1.5
+    },
+    {
+      "model": "AIRBLADE 160",
+      "index_size": 1.5
+    },
+    {
       "model": "AVENIS125",
-      "index_size": 1.0
-    },
-    {
-      "model": "BURGMAN STREET",
-      "index_size": 1.5
-    },
-    {
-      "model": "BURGMAN STREET EX",
-      "index_size": 1.5
-    },
-    {
-      "model": "DR160",
-      "index_size": 1.5
-    },
-    {
-      "model": "GIXXER 155",
-      "index_size": 2.0
-    },
-    {
-      "model": "GIXXER SF 155",
-      "index_size": 2.0
-    },
-    {
-      "model": "GIXXER SF 250",
-      "index_size": 2.0
-    },
-    {
-      "model": "GIXXER250",
-      "index_size": 2.0
-    },
-    {
-      "model": "RAIDER150 FI BLADE",
-      "index_size": 1.0
-    },
-    {
-      "model": "RAIDER150 FI PRO",
-      "index_size": 1.0
-    },
-    {
-      "model": "SKYDRIVE CROSSOVER",
-      "index_size": 1.0
-    },
-    {
-      "model": "SKYDRIVE SPORT",
-      "index_size": 1.0
-    },
-    {
-      "model": "SMASH FI(MAGS)",
-      "index_size": 1.0
-    },
-    {
-      "model": "SMASH FI(SPOKE)",
-      "index_size": 1.0
-    },
-    {
-      "model": "SMASH(MAGS)",
-      "index_size": 1.0
-    },
-    {
-      "model": "SMASH(SPOKE)",
-      "index_size": 1.0
-    },
-    {
-      "model": "V-STROM 160",
-      "index_size": 2.0
-    },
-    {
-      "model": "V-STROM 250 SX",
-      "index_size": 2.0
-    },
-    {
-      "model": "WIZARD",
       "index_size": 1.0
     },
     {
@@ -133,6 +73,18 @@
       "index_size": 1.0
     },
     {
+      "model": "BEAT FI PREM",
+      "index_size": 1.0
+    },
+    {
+      "model": "BEAT FI STD",
+      "index_size": 1.0
+    },
+    {
+      "model": "BOLT R-SPEC BDU7",
+      "index_size": 2.0
+    },
+    {
       "model": "BOXER",
       "index_size": 1.0
     },
@@ -141,40 +93,16 @@
       "index_size": 1.0
     },
     {
-      "model": "CT100",
-      "index_size": 1.0
-    },
-    {
-      "model": "CT100B",
-      "index_size": 1.0
-    },
-    {
-      "model": "CT125",
-      "index_size": 1.0
-    },
-    {
-      "model": "KLX150",
+      "model": "BURGMAN STREET",
       "index_size": 1.5
     },
     {
-      "model": "ADV160",
+      "model": "BURGMAN STREET EX",
       "index_size": 1.5
     },
     {
-      "model": "ADV160 ROADSYNC",
+      "model": "BURGMAN15",
       "index_size": 1.5
-    },
-    {
-      "model": "AIRBLADE 160",
-      "index_size": 1.5
-    },
-    {
-      "model": "BEAT FI PREM",
-      "index_size": 1.0
-    },
-    {
-      "model": "BEAT FI STD",
-      "index_size": 1.0
     },
     {
       "model": "CLICK125 FI",
@@ -201,12 +129,112 @@
       "index_size": 2.0
     },
     {
+      "model": "CT100",
+      "index_size": 1.0
+    },
+    {
+      "model": "CT100B",
+      "index_size": 1.0
+    },
+    {
+      "model": "CT125",
+      "index_size": 1.0
+    },
+    {
+      "model": "DR160",
+      "index_size": 1.5
+    },
+    {
+      "model": "FAZZIO",
+      "index_size": 1.0
+    },
+    {
       "model": "GIORNO",
       "index_size": 1.0
     },
     {
+      "model": "GIXXER 155",
+      "index_size": 2.0
+    },
+    {
+      "model": "GIXXER SF 155",
+      "index_size": 2.0
+    },
+    {
+      "model": "GIXXER SF 250",
+      "index_size": 2.0
+    },
+    {
+      "model": "GIXXER250",
+      "index_size": 2.0
+    },
+    {
+      "model": "GN160",
+      "index_size": 1.5
+    },
+    {
+      "model": "KLX150",
+      "index_size": 1.5
+    },
+    {
+      "model": "LEXI 155",
+      "index_size": 1.5
+    },
+    {
+      "model": "MIO AEROX 155",
+      "index_size": 1.5
+    },
+    {
+      "model": "MIO AEROX S 155",
+      "index_size": 1.5
+    },
+    {
+      "model": "MIO GEAR",
+      "index_size": 1.0
+    },
+    {
+      "model": "MIO GRAVIS",
+      "index_size": 1.0
+    },
+    {
+      "model": "MIO i125",
+      "index_size": 1.0
+    },
+    {
+      "model": "MIO SPORTY",
+      "index_size": 1.0
+    },
+    {
+      "model": "MT-07 BATP",
+      "index_size": 3.5
+    },
+    {
+      "model": "MT-09 B7NL",
+      "index_size": 3.5
+    },
+    {
+      "model": "MT-10 SP BGG8",
+      "index_size": 3.0
+    },
+    {
+      "model": "MT03",
+      "index_size": 1.5
+    },
+    {
+      "model": "MT15",
+      "index_size": 1.5
+    },
+    {
       "model": "NAVI",
       "index_size": 1.0
+    },
+    {
+      "model": "NMAX155 FI ABS",
+      "index_size": 1.5
+    },
+    {
+      "model": "NMAX155 TECHMAX",
+      "index_size": 1.5
     },
     {
       "model": "PCX160 ROADSYNC",
@@ -217,12 +245,120 @@
       "index_size": 1.5
     },
     {
+      "model": "PG-01",
+      "index_size": 1.5
+    },
+    {
+      "model": "PW50 BSL4",
+      "index_size": 2.0
+    },
+    {
+      "model": "R15",
+      "index_size": 1.5
+    },
+    {
+      "model": "R3",
+      "index_size": 1.5
+    },
+    {
+      "model": "RAIDER150 FI BLADE",
+      "index_size": 1.0
+    },
+    {
+      "model": "RAIDER150 FI PRO",
+      "index_size": 1.0
+    },
+    {
+      "model": "SEROW",
+      "index_size": 1.5
+    },
+    {
+      "model": "SKYDRIVE CROSSOVER",
+      "index_size": 1.0
+    },
+    {
+      "model": "SKYDRIVE SPORT",
+      "index_size": 1.0
+    },
+    {
+      "model": "SMASH FI(MAGS)",
+      "index_size": 1.0
+    },
+    {
+      "model": "SMASH FI(SPOKE)",
+      "index_size": 1.0
+    },
+    {
+      "model": "SMASH(MAGS)",
+      "index_size": 1.0
+    },
+    {
+      "model": "SMASH(SPOKE)",
+      "index_size": 1.0
+    },
+    {
+      "model": "SNIPER 155 FI",
+      "index_size": 1.5
+    },
+    {
+      "model": "SPARE PARTS - LARGE BOX",
+      "index_size": 0.5
+    },
+    {
+      "model": "SPARE PARTS - MEDIUM BOX",
+      "index_size": 0.25
+    },
+    {
+      "model": "SPARE PARTS - SMALL BOX",
+      "index_size": 0.1
+    },
+    {
+      "model": "SPARE PARTS - XLARGE BOX",
+      "index_size": 1.0
+    },
+    {
+      "model": "SUPER TENERE ES BUY5",
+      "index_size": 3.0
+    },
+    {
+      "model": "TENERE 700 BMB3",
+      "index_size": 3.0
+    },
+    {
+      "model": "TIRES BUNDLE - MEDIUM(25'S)",
+      "index_size": 0.5
+    },
+    {
+      "model": "TIRES BUNDLE - SMALL(25'S)",
+      "index_size": 0.25
+    },
+    {
+      "model": "TMAX BBV5",
+      "index_size": 3.0
+    },
+    {
+      "model": "TMAX TECH MAX BBWD",
+      "index_size": 3.0
+    },
+    {
       "model": "TMX ALPHA FI",
       "index_size": 1.0
     },
     {
       "model": "TMX150 SUPREMO",
       "index_size": 1.0
+    },
+    {
+      "model": "TRACER 9 GT BAP4",
+      "index_size": 3.0
+    },
+    {
+      "model": "V-STROM 160",
+      "index_size": 2.0
+    },
+    {
+      "model": "V-STROM 250 SX",
+      "index_size": 2.0
     },
     {
       "model": "WAVE RSX (DRUM)",
@@ -245,6 +381,34 @@
       "index_size": 1.0
     },
     {
+      "model": "WIZARD",
+      "index_size": 1.0
+    },
+    {
+      "model": "WR155",
+      "index_size": 2.0
+    },
+    {
+      "model": "WR250F BAKA",
+      "index_size": 2.0
+    },
+    {
+      "model": "WR250F BAKH",
+      "index_size": 2.0
+    },
+    {
+      "model": "WR450F BDB5",
+      "index_size": 2.0
+    },
+    {
+      "model": "WR450F BDB9",
+      "index_size": 2.0
+    },
+    {
+      "model": "XMAX",
+      "index_size": 2.0
+    },
+    {
       "model": "XR150",
       "index_size": 1.5
     },
@@ -265,83 +429,35 @@
       "index_size": 1.0
     },
     {
-      "model": "MIO SPORTY",
-      "index_size": 1.0
-    },
-    {
-      "model": "MIO i125",
-      "index_size": 1.0
-    },
-    {
-      "model": "MIO GEAR",
-      "index_size": 1.0
-    },
-    {
-      "model": "FAZZIO",
-      "index_size": 1.0
-    },
-    {
-      "model": "MIO GRAVIS",
-      "index_size": 1.0
-    },
-    {
-      "model": "YTX125",
+      "model": "XSR",
       "index_size": 1.5
+    },
+    {
+      "model": "XSR700 BMC3",
+      "index_size": 3.5
+    },
+    {
+      "model": "XSR900 BEA8",
+      "index_size": 3.5
     },
     {
       "model": "XTZ125",
       "index_size": 1.5
     },
     {
-      "model": "MIO AEROX 155",
+      "model": "YTX125",
       "index_size": 1.5
     },
     {
-      "model": "MIO AEROX S 155",
-      "index_size": 1.5
+      "model": "YZ125 B4XC",
+      "index_size": 2.0
     },
     {
-      "model": "NMAX155 FI ABS",
-      "index_size": 1.5
+      "model": "YZ125X",
+      "index_size": 2.0
     },
     {
-      "model": "NMAX155 TECHMAX",
-      "index_size": 1.5
-    },
-    {
-      "model": "SNIPER 155 FI",
-      "index_size": 1.5
-    },
-    {
-      "model": "MT15",
-      "index_size": 1.5
-    },
-    {
-      "model": "MT03",
-      "index_size": 1.5
-    },
-    {
-      "model": "R15",
-      "index_size": 1.5
-    },
-    {
-      "model": "R3",
-      "index_size": 1.5
-    },
-    {
-      "model": "SEROW",
-      "index_size": 1.5
-    },
-    {
-      "model": "XSR",
-      "index_size": 1.5
-    },
-    {
-      "model": "PG-01",
-      "index_size": 1.5
-    },
-    {
-      "model": "LEXI 155",
+      "model": "YZ250 BRCB",
       "index_size": 1.5
     },
     {
@@ -357,55 +473,19 @@
       "index_size": 1.5
     },
     {
-      "model": "YZ250 BRCB",
-      "index_size": 1.5
-    },
-    {
       "model": "YZ450F BHRB",
       "index_size": 1.5
     },
     {
-      "model": "WR155",
-      "index_size": 2.0
+      "model": "YZ65 BR8P",
+      "index_size": 3.0
     },
     {
-      "model": "XMAX",
-      "index_size": 2.0
-    },
-    {
-      "model": "WR250F BAKH",
-      "index_size": 2.0
-    },
-    {
-      "model": "WR250F BAKA",
-      "index_size": 2.0
-    },
-    {
-      "model": "WR450F BDB5",
-      "index_size": 2.0
-    },
-    {
-      "model": "WR450F BDB9",
-      "index_size": 2.0
-    },
-    {
-      "model": "PW50 BSL4",
-      "index_size": 2.0
-    },
-    {
-      "model": "YZ125X",
-      "index_size": 2.0
+      "model": "YZ85 B4BF",
+      "index_size": 4.0
     },
     {
       "model": "YZF-R1M D466",
-      "index_size": 2.0
-    },
-    {
-      "model": "YZF-R7 BEBV",
-      "index_size": 2.0
-    },
-    {
-      "model": "BOLT R-SPEC BDU7",
       "index_size": 2.0
     },
     {
@@ -413,84 +493,8 @@
       "index_size": 2.0
     },
     {
-      "model": "YZ125 B4XC",
+      "model": "YZF-R7 BEBV",
       "index_size": 2.0
-    },
-    {
-      "model": "TMAX TECH MAX BBWD",
-      "index_size": 3.0
-    },
-    {
-      "model": "YZ65 BR8P",
-      "index_size": 3.0
-    },
-    {
-      "model": "MT-10 SP BGG8",
-      "index_size": 3.0
-    },
-    {
-      "model": "TMAX BBV5",
-      "index_size": 3.0
-    },
-    {
-      "model": "TRACER 9 GT BAP4",
-      "index_size": 3.0
-    },
-    {
-      "model": "SUPER TENERE ES BUY5",
-      "index_size": 3.0
-    },
-    {
-      "model": "TENERE 700 BMB3",
-      "index_size": 3.0
-    },
-    {
-      "model": "XSR700 BMC3",
-      "index_size": 3.5
-    },
-    {
-      "model": "MT-07 BATP",
-      "index_size": 3.5
-    },
-    {
-      "model": "MT-09 B7NL",
-      "index_size": 3.5
-    },
-    {
-      "model": "XSR900 BEA8",
-      "index_size": 3.5
-    },
-    {
-      "model": "YZ85 B4BF",
-      "index_size": 4.0
-    },
-    {
-      "model": "SPARE PARTS - SMALL BOX",
-      "index_size": 0.1
-    },
-    {
-      "model": "SPARE PARTS - MEDIUM BOX",
-      "index_size": 0.25
-    },
-    {
-      "model": "SPARE PARTS - LARGE BOX",
-      "index_size": 0.5
-    },
-    {
-      "model": "SPARE PARTS - XLARGE BOX",
-      "index_size": 1.0
-    },
-    {
-      "model": "TIRES BUNDLE - SMALL(25'S)",
-      "index_size": 0.25
-    },
-    {
-      "model": "TIRES BUNDLE - MEDIUM(25'S)",
-      "index_size": 0.5
-    },
-    {
-      "model": "GN160",
-      "index_size": 1.5
     }
   ],
   "branches": [
@@ -530,6 +534,11 @@
       "active": true
     },
     {
+      "branch": "MUTI BULUA",
+      "area": "AREA II",
+      "active": true
+    },
+    {
       "branch": "MUTI DON CARLOS",
       "area": "AREA II",
       "active": true
@@ -540,7 +549,17 @@
       "active": true
     },
     {
+      "branch": "MUTI MANOLO",
+      "area": "AREA II",
+      "active": true
+    },
+    {
       "branch": "MUTI MARAMAG",
+      "area": "AREA II",
+      "active": true
+    },
+    {
+      "branch": "MUTI OZAMIS",
       "area": "AREA II",
       "active": true
     },
@@ -551,16 +570,6 @@
     },
     {
       "branch": "MUTI VALENCIA",
-      "area": "AREA II",
-      "active": true
-    },
-    {
-      "branch": "MUTI BULUA",
-      "area": "AREA II",
-      "active": true
-    },
-    {
-      "branch": "MUTI MANOLO",
       "area": "AREA II",
       "active": true
     },
@@ -580,17 +589,17 @@
       "active": true
     },
     {
-      "branch": "MUTI TAGUM 3",
-      "area": "AREA III-A",
-      "active": true
-    },
-    {
       "branch": "MUTI TAGUM 1",
       "area": "AREA III-A",
       "active": true
     },
     {
       "branch": "MUTI TAGUM 2",
+      "area": "AREA III-A",
+      "active": true
+    },
+    {
+      "branch": "MUTI TAGUM 3",
       "area": "AREA III-A",
       "active": true
     },
@@ -655,7 +664,17 @@
       "active": true
     },
     {
+      "branch": "HONDA MALUNGON",
+      "area": "AREA V",
+      "active": true
+    },
+    {
       "branch": "MUTI 3S",
+      "area": "AREA V",
+      "active": true
+    },
+    {
+      "branch": "MUTI ALABEL",
       "area": "AREA V",
       "active": true
     },
@@ -680,17 +699,7 @@
       "active": true
     },
     {
-      "branch": "MUTI ALABEL",
-      "area": "AREA V",
-      "active": true
-    },
-    {
-      "branch": "HONDA MALUNGON",
-      "area": "AREA V",
-      "active": true
-    },
-    {
-      "branch": "MUTI SAN FRANCISCO",
+      "branch": "MUTI BAYUGAN",
       "area": "AREA VI",
       "active": true
     },
@@ -700,7 +709,7 @@
       "active": true
     },
     {
-      "branch": "MUTI BAYUGAN",
+      "branch": "MUTI CABADBARAN",
       "area": "AREA VI",
       "active": true
     },
@@ -710,7 +719,12 @@
       "active": true
     },
     {
-      "branch": "MUTI CABADBARAN",
+      "branch": "MUTI SAN FRANCISCO",
+      "area": "AREA VI",
+      "active": true
+    },
+    {
+      "branch": "MUTI SURIGAO",
       "area": "AREA VI",
       "active": true
     },
@@ -718,16 +732,15 @@
       "branch": "MUTI CALAMBA",
       "area": "AREA VII",
       "active": true
-    },
-    {
-      "branch": "MUTI OZAMIS",
-      "area": "AREA II",
-      "active": true
     }
   ],
   "settings": {
     "underutilized_pct": 75,
     "full_pct": 90,
     "max_branches_per_truck": 6
-  }
+  },
+  "_system_migrations": [
+    "v2.30_burgman15_index_1_5",
+    "v2.30_muti_surigao_area_vi"
+  ]
 }

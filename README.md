@@ -1,7 +1,61 @@
 # SCM Inventory & Distribution Planning Dashboard
 
-## Release: v2.28
+## Release: v2.35
 
+### v2.35 Protected Saved Weekly Delivery Plan
+- **Clear Board** clears only the current working/on-screen Weekly Truck Schedule and Allocation view.
+- The saved weekly **Schedule + Allocation** is protected and remains persisted.
+- **View Weekly Schedule** and **View Allocation Import** explicitly reload the protected saved plan.
+- A blank board immediately after Clear Board cannot overwrite the saved weekly plan through **Save Schedule + Allocation**.
+- **Clear Allocations** remains a separate, explicitly destructive saved-data action.
+
+
+
+### v2.34 DoI Round-Up + ABC Export + Class A DoI Direction
+- All Days of Inventory (DoI) displays and calculated New DoI values now follow the approved **round-up / ceiling rule** (example: 6.01 → 7 days).
+- Executive **Class A / B / C Model Position** now includes a **Brand filter**; the summary cards and rows react to the selected Brand.
+- **Export Presentation** now includes the imported Class A/B/C Model Position with Class Rank, Brand, Model, rounded-up DoI and Stock Status. The current Brand filter is carried into the exported deck.
+- **MC Class A DoI** is now treated as **higher-is-better**. If Current DoI is lower than Previous DoI, the movement is labeled **Negative**; a higher Current DoI is **Positive**.
+- KPI cards, chart legends and presentation summaries now use KPI-specific favorable-direction logic instead of assuming every decrease is favorable.
+
+### v2.32 Executive Reorder Card + Unified Weekly Plan Save
+- Executive Dashboard now includes a **Class A / B / C Model Position** card sourced directly from the latest imported Re-order sheet.
+- The card displays **Class, imported Rank, Brand, Model, DoI and Stock Status**, with A/B/C filters and class summary counts / average DoI.
+- Delivery Control Board title is now **Delivery Plan for the Week**.
+- Added **Save Schedule + Allocation** so the current Weekly Truck Schedule and Allocation plan can be committed together in one action.
+- Existing Save Schedule, Allocation Control, direct Edit / Transfer, Split & Transfer and load-rebalance behavior remain available.
+
+### v2.31 Allocation Edit / Truck Rebalance
+- **Edit / Transfer** on any model now opens that allocation directly in a focused popup instead of opening the full Allocation Control Center.
+- The popup includes Model, Branch, Quantity, Class, Remarks and a **Target Truck / Trip** selector.
+- Selecting another saved Day + Truck creates a manual rebalance override; the model is planned on that truck even when it was originally mapped to another route.
+- **Save & Rebalance** can edit the allocation and move it to another truck in one action. Selecting **AUTO** removes the manual override and returns the allocation to its normal Branch schedule.
+- Added **Split & Transfer**: move only part of an allocation quantity to another truck while retaining the balance on the original allocation.
+- Target truck trips are validated against the saved Weekly Truck Schedule and the configured maximum route-stop limit.
+- Manual transfers are clearly marked in the Delivery Plan and remain capacity-aware; any residual quantity still follows auto-rollover/backorder rules.
+
+### v2.30 Delivery Plan Control-Tower Redesign
+- Audited the Delivery Plan workflow and removed the redundant full-page **Imported Allocation + Scheduled Dispatch** section.
+- Replaced it with an on-demand **Allocation Control Center** for correction/maintenance only.
+- Main workflow is now: **Weekly Truck Schedule → Allocation Import → Weekly Delivery Plan & Capacity Control → Branch Dispatch Priority**.
+- Weekly Delivery Plan now has executive plan-health, completion/exception pulse cards, clickable Monday-Saturday day cards, and stronger truck/branch visual hierarchy.
+- **Every model allocation** in the capacity plan can be Adjusted, Edited or Deleted — not only overloaded/carryover/backorder models.
+- Allocation Control Center supports Model, Branch, Quantity, Class, Remarks and schedule-mapping review without cluttering the main planning page.
+- Added **BURGMAN15** to Model Master with **Index Size 1.5**. A one-time persisted-master migration applies this to existing Render persistent data without repeatedly overwriting future user edits.
+- Audit fix: **MUTI SURIGAO / AREA VI** is added to Branch Master when absent so the supplied weekly schedule captures all 37 source trip rows instead of rejecting that route.
+- Branch Dispatch Priority remains because it is not redundant: truck cards answer **capacity/control**, while Branch Dispatch Priority answers **execution sequence by branch**.
+
+
+
+
+
+### v2.29 Weekly Truck Schedule Compact Workflow
+- **Weekly Truck Schedule** can now be minimized and expanded without affecting saved schedule data. The user preference is retained in the browser.
+- Added a **+ New Trip Assignment** button. Day, Truck, Area and Branch entry fields now open in a focused popup instead of permanently occupying the Delivery Control Board.
+- Adding, editing, or removing a trip marks the schedule as **Pending Save**. The **Save Schedule** button changes to `Save Schedule • Pending` and is visually emphasized until the route is committed.
+- After **Add Trip**, the popup closes, the Weekly Truck Schedule expands so the newly staged trip is visible, and the user is prompted to trigger **Save Schedule**.
+- **Save Schedule** persists the full route, clears only the New Trip Assignment popup fields, removes the pending-save indicator, and retains all saved trips until **Clear Board**.
+- Imported schedules remain persisted immediately by the import workflow; after import the schedule is shown as saved/clean and can be extended through **New Trip Assignment**.
 
 
 ### v2.28 Weekly Truck Schedule Save Behavior
@@ -716,3 +770,10 @@ Every clear action requires confirmation, saves the cleared state immediately, r
 - Quantity adjustment and delete actions persist immediately and recalculate the Delivery Plan.
 - Saved allocation batches can be reopened for full Model/Branch/Quantity/Class/Remarks correction, then Save & Recalculate.
 - Existing save-and-clear batch behavior is preserved.
+
+
+## v2.35 Clear Board protection
+- Clear Board now resets only the current on-screen working Delivery Board.
+- The saved Weekly Truck Schedule and saved Allocation for the week are preserved.
+- Use **View Weekly Schedule** or **View Allocation Import** to reload the saved weekly plan after clearing the working board.
+- The explicit **Clear Allocations** action remains destructive for saved allocation rows and shows a permanent-action warning.

@@ -36,6 +36,27 @@ def _whole(value):
         return value
 
 
+def _doi_whole(value):
+    if value is None or value == "—":
+        return value
+    try:
+        return int(math.ceil(max(0.0, float(value))))
+    except Exception:
+        return value
+
+
+def _delta_favorable(delta, good):
+    if delta is None:
+        return None
+    try:
+        d = float(delta)
+    except Exception:
+        return None
+    if abs(d) < 1e-12 or good == "balanced":
+        return None
+    return d > 0 if good == "high" else d < 0
+
+
 def _set_bg(slide, color=DARK):
     fill = slide.background.fill
     fill.solid(); fill.fore_color.rgb = color
@@ -68,7 +89,7 @@ def _title(slide, title, subtitle=None):
         _textbox(slide, 0.65, 1.03, 10.2, 0.35, subtitle, 10, False, MUTED)
 
 
-def _card(slide, x, y, w, h, label, value, suffix="", delta=None):
+def _card(slide, x, y, w, h, label, value, suffix="", delta=None, good="low"):
     sh = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
     sh.fill.solid(); sh.fill.fore_color.rgb = DARK2; sh.line.color.rgb = RGBColor(51,65,85)
     accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x+0.10), Inches(y+0.10), Inches(0.055), Inches(max(0.25, h-0.20)))
@@ -76,12 +97,14 @@ def _card(slide, x, y, w, h, label, value, suffix="", delta=None):
     _textbox(slide, x+0.22, y+0.12, w-0.42, 0.25, label, 8.5, True, MUTED)
     _textbox(slide, x+0.22, y+0.45, w-0.42, 0.42, f"{value}{suffix}", 22, True, WHITE)
     if delta is not None:
-        col = GREEN if delta <= 0 else RED
+        favorable = _delta_favorable(delta, good)
+        col = GREEN if favorable is True else (RED if favorable is False else MUTED)
         arrow = "▼" if delta < 0 else ("▲" if delta > 0 else "•")
-        _textbox(slide, x+0.18, y+h-0.38, w-0.36, 0.22, f"{arrow} {_whole(abs(delta))} vs previous", 8, True, col)
+        meaning = "" if favorable is None else (" • Positive" if favorable else " • Negative")
+        _textbox(slide, x+0.18, y+h-0.38, w-0.36, 0.22, f"{arrow} {_whole(abs(delta))} vs previous{meaning}", 8, True, col)
 
 
-def _chart_png(labels: List[str], values: List[float], trend: List[float], title: str, percent=False, period="ytd") -> str:
+def _chart_png(labels: List[str], values: List[float], trend: List[float], title: str, percent=False, period="ytd", good="low") -> str:
     # Actual and Trend share one chart. The regression trend remains a straight
     # directional line and is shifted upward by one constant display offset only.
     fig, ax = plt.subplots(figsize=(9.5, 3.15), dpi=160)
@@ -126,8 +149,15 @@ def _chart_png(labels: List[str], values: List[float], trend: List[float], title
         trend_arrow = "→"
     else:
         trend_arrow = "↑" if last_t > first_t else "↓"
+    latest_note = ""
+    if len(rounded_values) > 1 and all(isinstance(v, (int, float)) for v in rounded_values[-2:]):
+        latest_delta = rounded_values[-1] - rounded_values[-2]
+        latest_arrow = "→" if abs(latest_delta) < 1e-9 else ("↑" if latest_delta > 0 else "↓")
+        favorable = _delta_favorable(latest_delta, good)
+        latest_meaning = "" if favorable is None else (" Positive" if favorable else " Negative")
+        latest_note = f" • Latest {latest_arrow}{latest_meaning}"
     ax.plot(x, display_trend, linestyle=(0, (6, 4)), linewidth=2.0, color="#cbd5e1",
-            label=f"Trend Direction {trend_arrow}", zorder=4, solid_capstyle="butt")
+            label=f"Trend Direction {trend_arrow}{latest_note}", zorder=4, solid_capstyle="butt")
 
     # Keep data labels and elevated trend direction line inside the plot area.
     all_plot_values = [v for v in (rounded_values + display_trend) if isinstance(v, (int, float))]
@@ -226,17 +256,17 @@ def _add_kpi_summary_slide(prs, blank, data: Dict[str, Any]):
         weekly_latest = weekly.get("latest")
         ytd_delta = ytd.get("delta")
         weekly_delta = weekly.get("delta")
-        trend = ytd.get("trend") or []
-        arrow = "→"
-        if len(trend) >= 2:
-            arrow = "↑" if trend[-1] > trend[0] else ("↓" if trend[-1] < trend[0] else "→")
+        fmt_value = _whole if meta.get("unit") == "percent" else _doi_whole
+        arrow = "→" if ytd_delta is None or abs(float(ytd_delta)) < 1e-12 else ("↑" if ytd_delta > 0 else "↓")
+        favorable = _delta_favorable(ytd_delta, meta.get("good", "low"))
+        direction = f"{arrow} " + ("Positive" if favorable is True else "Negative" if favorable is False else "Neutral")
         vals = [
             meta.get("label", name),
-            "—" if ytd_latest is None else f"{_whole(ytd_latest)}{unit}",
+            "—" if ytd_latest is None else f"{fmt_value(ytd_latest)}{unit}",
             "—" if ytd_delta is None else f"{_whole(ytd_delta)}{unit}",
-            "—" if weekly_latest is None else f"{_whole(weekly_latest)}{unit}",
+            "—" if weekly_latest is None else f"{fmt_value(weekly_latest)}{unit}",
             "—" if weekly_delta is None else f"{_whole(weekly_delta)}{unit}",
-            f"Trend {arrow}",
+            direction,
         ]
         _table_row(slide, 0.72, y, vals, widths, 0.36, danger=(meta.get("unit") == "percent" and (ytd_latest or 0) > 20))
         y += 0.40
@@ -327,7 +357,7 @@ def _add_priority_model_slide(prs, blank, all_branches: List[Dict[str, Any]]):
     _table_header(slide, 0.72, 1.35, cols, widths, 0.30)
     y=1.70
     for i,r in enumerate(model_rows[:20], start=1):
-        vals=[i, r['area'], r['branch'], r['class'], r['model'], r['status'], _whole(r['inventory']), _whole(r['doi'])]
+        vals=[i, r['area'], r['branch'], r['class'], r['model'], r['status'], _whole(r['inventory']), _doi_whole(r['doi'])]
         _table_row(slide, 0.72, y, vals, widths, 0.245, danger=(r['risk']>0 and r['class']=='A'))
         y += 0.265
 
@@ -387,7 +417,7 @@ def _add_branch_model_detail_slides(prs, blank, all_branches: List[Dict[str, Any
                 total_inv = sum(float(m.get('inventory') or 0) for m in rows)
                 total_sug = sum(float(m.get('suggested_transfer') or 0) for m in rows)
                 avg_doi = (sum(float(m.get('doi') or 0) for m in rows) / len(rows)) if rows else 0
-                cards = [("Models", len(rows), ""), ("Risk Items", risk_count, ""), ("Inventory", _whole(total_inv), ""), ("Suggested Transfer", _whole(total_sug), ""), ("Avg DoI", _whole(avg_doi), " d")]
+                cards = [("Models", len(rows), ""), ("Risk Items", risk_count, ""), ("Inventory", _whole(total_inv), ""), ("Suggested Transfer", _whole(total_sug), ""), ("Avg DoI", _doi_whole(avg_doi), " d")]
                 for i, (lab, val, suf) in enumerate(cards):
                     _card(slide, 0.52 + i*2.48, 1.25, 2.18, 0.84, lab, val, suf)
                 cols = ["#", "Brand", "Model", "Stock Status", "Inv", "Sug. Trf", "DoI"]
@@ -407,13 +437,59 @@ def _add_branch_model_detail_slides(prs, blank, all_branches: List[Dict[str, Any
                         status,
                         _whole(m.get("inventory", 0)),
                         _whole(m.get("suggested_transfer", 0)),
-                        _whole(m.get("doi", 0)),
+                        _doi_whole(m.get("doi", 0)),
                     ]
                     _table_row(slide, 0.72, y, vals, widths, 0.27, danger=danger)
                     y += 0.30
 
 
-def build_presentation(data: Dict[str, Any], area_data: Dict[str, Any], branch_data: Dict[str, Any], all_branches: List[Dict[str, Any]] | None = None) -> bytes:
+
+def _add_reorder_model_position_slides(prs, blank, reorder_card: Dict[str, Any], brand_filter: str = "All Brands"):
+    rows = list((reorder_card or {}).get("rows", []) or [])
+    if brand_filter and brand_filter != "All Brands":
+        rows = [r for r in rows if (r.get("brand") or "Unspecified") == brand_filter]
+    class_order = {"A": 0, "B": 1, "C": 2}
+    rows.sort(key=lambda r: (class_order.get(r.get("class"), 9), int(r.get("rank", 999999)), r.get("brand", ""), r.get("model", "")))
+    scope = brand_filter if brand_filter and brand_filter != "All Brands" else "All Brands"
+    counts = {c: sum(1 for r in rows if r.get("class") == c) for c in ("A", "B", "C")}
+    avgs = {}
+    for c in ("A", "B", "C"):
+        vals = [_doi_whole(r.get("doi", 0)) for r in rows if r.get("class") == c]
+        vals = [v for v in vals if isinstance(v, (int, float))]
+        avgs[c] = _doi_whole(sum(vals)/len(vals)) if vals else 0
+
+    slide = prs.slides.add_slide(blank); _set_bg(slide)
+    _title(slide, "CLASS A / B / C MODEL POSITION", f"Imported Reorder priority • Brand filter: {scope} • DoI values follow the approved round-up rule.")
+    cards=[("Class A",counts["A"],f"Avg DoI {avgs['A']} d"),("Class B",counts["B"],f"Avg DoI {avgs['B']} d"),("Class C",counts["C"],f"Avg DoI {avgs['C']} d"),("ABC Models",len(rows),scope)]
+    for i,(lab,val,sub) in enumerate(cards):
+        x=0.72+i*3.08
+        sh=slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(1.55), Inches(2.72), Inches(1.15))
+        sh.fill.solid(); sh.fill.fore_color.rgb=DARK2; sh.line.color.rgb=RGBColor(51,65,85)
+        _textbox(slide,x+0.18,1.73,2.3,0.22,lab,8.5,True,MUTED)
+        _textbox(slide,x+0.18,2.02,2.3,0.34,val,20,True,WHITE)
+        _textbox(slide,x+0.18,2.42,2.3,0.18,sub,7.5,True,GOLD)
+    _textbox(slide,0.72,3.10,11.8,0.30,"Decision rule: prioritize Class A first; within each class, review lower DoI positions and imported Class Rank for replenishment action.",10.5,False,MUTED)
+    if not rows:
+        _textbox(slide,0.72,3.75,11.8,0.35,"No Reorder models match the selected Brand filter.",15,True,RED)
+        return
+
+    per_slide=20
+    total_pages=max(1,math.ceil(len(rows)/per_slide))
+    for page,start in enumerate(range(0,len(rows),per_slide),start=1):
+        slide=prs.slides.add_slide(blank); _set_bg(slide)
+        _title(slide,f"ABC MODEL POSITION · {page}/{total_pages}",f"Brand: {scope} • Sorted Class A → B → C, then imported Class Rank • DoI rounded up.")
+        cols=["#","Class","Rank","Brand","Model","DoI","Stock Status"]
+        widths=[0.45,0.70,0.65,1.45,4.35,0.70,2.55]
+        _table_header(slide,0.72,1.35,cols,widths,0.30)
+        y=1.70
+        for i,r in enumerate(rows[start:start+per_slide],start=start+1):
+            danger=(r.get("class")=="A" and ("stock" in str(r.get("stock_status","")).lower() or _doi_whole(r.get("doi",0)) <= 3))
+            vals=[i,r.get("class","—"),r.get("rank","—"),r.get("brand","—"),r.get("model","—"),f"{_doi_whole(r.get('doi',0))} d",r.get("stock_status","—")]
+            _table_row(slide,0.72,y,vals,widths,0.245,danger=danger)
+            y+=0.265
+
+
+def build_presentation(data: Dict[str, Any], area_data: Dict[str, Any], branch_data: Dict[str, Any], all_branches: List[Dict[str, Any]] | None = None, reorder_brand: str = "All Brands") -> bytes:
     """Build the management deck.
 
     v2.18: Export captures branded YTD and Weekly KPI trends, full Area Performance rates, Branch rankings, and per-Branch Class A/B/C model details.
@@ -430,14 +506,15 @@ def build_presentation(data: Dict[str, Any], area_data: Dict[str, Any], branch_d
     ribbon2 = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(7.05), Inches(5.1), Inches(0.06))
     ribbon2.fill.solid(); ribbon2.fill.fore_color.rgb = GOLD; ribbon2.line.fill.background()
     _textbox(slide, 0.72, 1.55, 11.9, 0.58, "SCM INVENTORY & DISTRIBUTION PLANNING", 30, True, WHITE)
-    _textbox(slide, 0.72, 2.17, 11.9, 0.35, "Executive KPI Review • YTD • Weekly • Area • Branch Model Details", 14, True, GOLD)
-    _textbox(slide, 0.72, 2.70, 11.4, 0.52, "A branded management deck capturing KPI movement, Area stock-out rates, branch risk and Class A/B/C model-level action details.", 14, False, MUTED)
+    _textbox(slide, 0.72, 2.17, 11.9, 0.35, "Executive KPI Review • YTD • Weekly • ABC Model Position • Area • Branch Details", 14, True, GOLD)
+    _textbox(slide, 0.72, 2.70, 11.4, 0.52, "A branded management deck capturing KPI movement, imported ABC Model Position, Area stock-out rates, branch risk and model-level action details.", 14, False, MUTED)
     latest_cards = []
     for name, kpi in data.get("kpis", {}).items():
         latest = kpi["ytd"].get("latest")
         delta = kpi["ytd"].get("delta")
         unit = kpi["meta"].get("unit")
-        latest_cards.append((kpi["meta"].get("label", name), _whole(latest) if latest is not None else "—", "%" if unit == "percent" else " d", delta))
+        latest_value = (_whole(latest) if unit == "percent" else _doi_whole(latest)) if latest is not None else "—"
+        latest_cards.append((kpi["meta"].get("label", name), latest_value, "%" if unit == "percent" else " d", delta, kpi["meta"].get("good", "low")))
     for i, c in enumerate(latest_cards):
         x = 0.72 + (i % 3) * 4.12; y = 3.0 + (i // 3) * 1.65
         _card(slide, x, y, 3.72, 1.32, *c)
@@ -446,6 +523,7 @@ def build_presentation(data: Dict[str, Any], area_data: Dict[str, Any], branch_d
     _textbox(slide, 0.72, 6.84, 11.8, 0.25, f"Coverage: {area_count} Areas • {branch_count} Branches • Source: KPI_YTD_Input, KPI_WEEKLY_Input and Raw Distribution data", 8.5, False, MUTED)
 
     _add_kpi_summary_slide(prs, blank, data)
+    _add_reorder_model_position_slides(prs, blank, data.get("reorder_card", {}), reorder_brand)
 
     # YTD / Weekly trend slides — all five KPIs captured.
     for period_key, period_title in [("ytd", "YTD KPI TRENDS"), ("weekly", "WEEKLY KPI TRENDS")]:
@@ -458,7 +536,7 @@ def build_presentation(data: Dict[str, Any], area_data: Dict[str, Any], branch_d
             y = 1.45
             for name, kpi in subset:
                 d = kpi[period_key]
-                path = _chart_png(d.get("labels", []), d.get("values", []), d.get("trend", []), kpi["meta"].get("label", name), kpi["meta"].get("unit") == "percent", period_key)
+                path = _chart_png(d.get("labels", []), d.get("values", []), d.get("trend", []), kpi["meta"].get("label", name), kpi["meta"].get("unit") == "percent", period_key, kpi["meta"].get("good", "low"))
                 slide.shapes.add_picture(path, Inches(0.72), Inches(y), width=Inches(11.9), height=Inches(1.6))
                 y += 1.78
 
@@ -474,13 +552,14 @@ def build_presentation(data: Dict[str, Any], area_data: Dict[str, Any], branch_d
     _textbox(slide, 0.72, 1.65, 11.6, 0.4, "Use the deck to identify Area exposure, branch priorities and model-level actions from a single KPI export.", 15, False, MUTED)
     actions = [
         "1  Review YTD and Weekly KPI movement before approving corrective actions.",
-        "2  Prioritize high stock-out Areas and Class A branch exposure.",
-        "3  Use all-Branch rankings to assign follow-up owners and replenishment priority.",
-        "4  Re-import the latest workbook and regenerate this deck for every management review.",
+        "2  Review Class A/B/C Model Position, starting with Class A Rank and low DoI exceptions.",
+        "3  Prioritize high stock-out Areas and Class A branch exposure.",
+        "4  Use all-Branch rankings to assign follow-up owners and replenishment priority.",
+        "5  Re-import the latest workbook and regenerate this deck for every management review.",
     ]
     for i,a in enumerate(actions):
-        sh=slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.72), Inches(2.55+i*0.86), Inches(11.8), Inches(0.65))
+        sh=slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.72), Inches(2.45+i*0.72), Inches(11.8), Inches(0.55))
         sh.fill.solid(); sh.fill.fore_color.rgb=DARK2; sh.line.color.rgb=RGBColor(51,65,85)
-        _textbox(slide, 1.0, 2.73+i*0.86, 11.2, 0.28, a, 13, i==0, GOLD if i==0 else WHITE)
+        _textbox(slide, 1.0, 2.60+i*0.72, 11.2, 0.24, a, 13, i==0, GOLD if i==0 else WHITE)
 
     out = BytesIO(); prs.save(out); return out.getvalue()

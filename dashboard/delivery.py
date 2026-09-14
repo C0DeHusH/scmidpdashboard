@@ -133,8 +133,42 @@ class DeliveryStore:
         s.setdefault("max_branches_per_truck", 6)
         # v2.26: the uploaded operating schedule contains route days with more than two branches.
         # Upgrade legacy settings so valid multi-stop routes are not rejected.
+        changed = False
         if int(max(1, _num(s.get("max_branches_per_truck"), 6))) < 6:
             s["max_branches_per_truck"] = 6
+            changed = True
+
+        # v2.30 master-data migration: the current allocation template contains BURGMAN15.
+        # Apply once to both new installs and existing persistent Render master files, then
+        # allow future user edits without re-overwriting the value on every restart.
+        migrations = self.master.setdefault("_system_migrations", [])
+        migration_key = "v2.30_burgman15_index_1_5"
+        if migration_key not in migrations:
+            models = self.master.get("models", [])
+            match = next((x for x in models if _clean(x.get("model")).upper() == "BURGMAN15"), None)
+            if match is None:
+                models.append({"model": "BURGMAN15", "index_size": 1.5})
+            else:
+                match["model"] = "BURGMAN15"
+                match["index_size"] = 1.5
+            models.sort(key=lambda x: _clean(x.get("model")).upper())
+            migrations.append(migration_key)
+            changed = True
+
+        # Delivery-plan audit fix: the approved weekly schedule includes MUTI SURIGAO
+        # under AREA VI. Add it only when absent so valid imported trips are not silently
+        # rejected, while preserving any later user edits/active status.
+        branch_migration = "v2.30_muti_surigao_area_vi"
+        if branch_migration not in migrations:
+            branches = self.master.get("branches", [])
+            existing_branch = next((x for x in branches if _clean(x.get("branch")).upper() == "MUTI SURIGAO"), None)
+            if existing_branch is None:
+                branches.append({"branch": "MUTI SURIGAO", "area": "AREA VI", "active": True})
+                branches.sort(key=lambda x: (_clean(x.get("area")).upper(), _clean(x.get("branch")).upper()))
+                changed = True
+            migrations.append(branch_migration)
+            changed = True
+        if changed:
             self._save_master()
 
     def _migrate_legacy_schedule(self) -> None:
@@ -437,16 +471,20 @@ class DeliveryStore:
         for i, a in enumerate(allocations):
             branch = _clean(a.get("branch"))
             slots = slots_by_branch.get(branch.upper(), [])
+            preferred_day = _clean(a.get("preferred_day"))
+            preferred_plate = _clean(a.get("preferred_plate"))
             first = slots[0] if slots else None
             trip_labels = [f"{_clean(x.get('day'))} • {_clean(x.get('plate'))}" for x in slots]
+            if preferred_day and preferred_plate:
+                trip_labels.insert(0, f"MANUAL • {preferred_day} • {preferred_plate}")
             out.append({
                 **a,
                 "allocation_index": i,
-                "scheduled_day": _clean(first.get("day")) if first else "",
-                "plate": _clean(first.get("plate")) if first else "",
+                "scheduled_day": preferred_day or (_clean(first.get("day")) if first else ""),
+                "plate": preferred_plate or (_clean(first.get("plate")) if first else ""),
                 "scheduled_trips": trip_labels,
                 "delivery_frequency": len(slots),
-                "schedule_status": (f"SCHEDULED • {len(slots)} TRIP{'S' if len(slots) != 1 else ''}/WEEK" if slots else "UNSCHEDULED"),
+                "schedule_status": (f"MANUAL REBALANCE • {preferred_day} • {preferred_plate}" if preferred_day and preferred_plate else (f"SCHEDULED • {len(slots)} TRIP{'S' if len(slots) != 1 else ''}/WEEK" if slots else "UNSCHEDULED")),
             })
         return out
 
@@ -458,12 +496,19 @@ class DeliveryStore:
             qty = _num(r.get("quantity"))
             if not model or not branch or qty <= 0:
                 continue
+            preferred_day = _clean(r.get("preferred_day"))
+            preferred_plate = _clean(r.get("preferred_plate"))
+            if not preferred_day or not preferred_plate:
+                preferred_day = ""
+                preferred_plate = ""
             clean_rows.append({
                 "model": model,
                 "branch": branch,
                 "quantity": qty,
                 "class": _allocation_class(r.get("class")),
                 "remarks": _clean(r.get("remarks")),
+                "preferred_day": preferred_day,
+                "preferred_plate": preferred_plate,
             })
         with self._lock:
             self.allocations = clean_rows
@@ -476,7 +521,7 @@ class DeliveryStore:
             if index < 0 or index >= len(self.allocations):
                 raise IndexError("Allocation line was not found. Refresh the Delivery Plan and try again.")
             current = dict(self.allocations[index])
-            for key in ("model", "branch", "quantity", "class", "remarks"):
+            for key in ("model", "branch", "quantity", "class", "remarks", "preferred_day", "preferred_plate"):
                 if key in (changes or {}):
                     current[key] = changes.get(key)
             model = _clean(current.get("model"))
@@ -486,13 +531,66 @@ class DeliveryStore:
                 raise ValueError("Model and Branch are required for an allocation line.")
             if qty <= 0:
                 raise ValueError("Quantity must be greater than zero. Use Delete to remove the allocation line.")
+            preferred_day = _clean(current.get("preferred_day"))
+            preferred_plate = _clean(current.get("preferred_plate"))
+            if not preferred_day or not preferred_plate:
+                preferred_day = ""
+                preferred_plate = ""
+            if preferred_day and preferred_plate:
+                trip_rows = [x for x in self.schedule if _clean(x.get("day")) == preferred_day and _clean(x.get("plate")).upper() == preferred_plate.upper()]
+                if not trip_rows:
+                    raise ValueError("The selected target truck trip is not in the saved Weekly Truck Schedule.")
+                target_branches = {_clean(x.get("branch")).upper() for x in trip_rows if _clean(x.get("branch"))}
+                max_stops = max(1, int(_num((self.master.get("settings") or {}).get("max_branches_per_truck"), 6)))
+                if branch.upper() not in target_branches and len(target_branches) >= max_stops:
+                    raise ValueError(f"Target truck already has the maximum {max_stops} route stops. Choose another truck or adjust the Weekly Truck Schedule.")
             self.allocations[index] = {
                 "model": model,
                 "branch": branch,
                 "quantity": qty,
                 "class": _allocation_class(current.get("class")),
                 "remarks": _clean(current.get("remarks")),
+                "preferred_day": preferred_day,
+                "preferred_plate": preferred_plate,
             }
+            self._save_allocations()
+            return [dict(x) for x in self.allocations]
+
+    def transfer_allocation(self, index: int, target_day: str, target_plate: str, quantity: Any = None) -> List[Dict[str, Any]]:
+        """Move all or part of one allocation to a selected saved truck trip for load rebalancing."""
+        day = _clean(target_day)
+        plate = _clean(target_plate)
+        if day not in DAYS or not plate:
+            raise ValueError("Select a valid target Day and Truck.")
+        with self._lock:
+            if index < 0 or index >= len(self.allocations):
+                raise IndexError("Allocation line was not found. Refresh the Delivery Plan and try again.")
+            trip_rows = [x for x in self.schedule if _clean(x.get("day")) == day and _clean(x.get("plate")).upper() == plate.upper()]
+            if not trip_rows:
+                raise ValueError("The selected target truck trip is not in the saved Weekly Truck Schedule.")
+            current = dict(self.allocations[index])
+            branch = _clean(current.get("branch"))
+            target_branches = {_clean(x.get("branch")).upper() for x in trip_rows if _clean(x.get("branch"))}
+            max_stops = max(1, int(_num((self.master.get("settings") or {}).get("max_branches_per_truck"), 6)))
+            if branch and branch.upper() not in target_branches and len(target_branches) >= max_stops:
+                raise ValueError(f"Target truck already has the maximum {max_stops} route stops. Choose another truck or adjust the Weekly Truck Schedule.")
+            current_qty = _num(current.get("quantity"))
+            move_qty = current_qty if quantity in (None, "") else _num(quantity)
+            if move_qty <= 0:
+                raise ValueError("Transfer quantity must be greater than zero.")
+            if move_qty > current_qty + 1e-9:
+                raise ValueError("Transfer quantity cannot exceed the allocation quantity.")
+            if move_qty >= current_qty - 1e-9:
+                current["preferred_day"] = day
+                current["preferred_plate"] = plate
+                self.allocations[index] = current
+            else:
+                self.allocations[index]["quantity"] = current_qty - move_qty
+                moved = dict(current)
+                moved["quantity"] = move_qty
+                moved["preferred_day"] = day
+                moved["preferred_plate"] = plate
+                self.allocations.insert(index + 1, moved)
             self._save_allocations()
             return [dict(x) for x in self.allocations]
 
@@ -568,7 +666,7 @@ class DeliveryStore:
                 continue
             if raw_class and not alloc_class:
                 warnings.append(f"Row {rno}: CLASS '{raw_class}' is not A, B or C; dashboard class will be used when available.")
-            parsed.append({"model": model, "branch": branch, "quantity": qty, "class": alloc_class, "remarks": remarks})
+            parsed.append({"model": model, "branch": branch, "quantity": qty, "class": alloc_class, "remarks": remarks, "preferred_day": "", "preferred_plate": ""})
         if not parsed:
             raise ValueError("No valid allocation rows were found.")
         self.replace_allocations(parsed)
@@ -668,7 +766,9 @@ class DeliveryStore:
             trip["day_trip_no"] = 1 + sum(1 for x in trips[:i] if x["day"] == trip["day"])
 
         branch_trip_indices: Dict[str, List[int]] = defaultdict(list)
+        trip_index_by_key: Dict[Tuple[str, str], int] = {}
         for i, trip in enumerate(trips):
+            trip_index_by_key[(trip["day"], trip["plate"].upper())] = i
             for branch in trip["branches"]:
                 branch_trip_indices[branch.upper()].append(i)
 
@@ -686,6 +786,17 @@ class DeliveryStore:
             idx = model_index.get(model.upper(), 1.0)
             cls = _allocation_class(a.get("class")) or _clean(dash.get("class")) or "—"
             stock_status = _clean(dash.get("stock_status")) or "—"
+            preferred_day = _clean(a.get("preferred_day"))
+            preferred_plate = _clean(a.get("preferred_plate"))
+            preferred_trip_index = trip_index_by_key.get((preferred_day, preferred_plate.upper())) if preferred_day and preferred_plate else None
+            normal_trip_indices = list(branch_trip_indices.get(branch.upper(), []))
+            if preferred_trip_index is not None:
+                # Manual rebalance: force this line to the selected truck first, then retain later
+                # branch trips as automatic rollover options if the target truck still cannot fit it.
+                scheduled_trip_indices = [preferred_trip_index] + [x for x in normal_trip_indices if x > preferred_trip_index]
+                scheduled_trip_indices = list(dict.fromkeys(scheduled_trip_indices))
+            else:
+                scheduled_trip_indices = normal_trip_indices
             state = {
                 "allocation_index": i,
                 "branch": branch,
@@ -699,7 +810,11 @@ class DeliveryStore:
                 "remaining_quantity": qty,
                 "user_remarks": _clean(a.get("remarks")),
                 "priority": _priority_label(cls, stock_status),
-                "scheduled_trip_indices": list(branch_trip_indices.get(branch.upper(), [])),
+                "preferred_day": preferred_day,
+                "preferred_plate": preferred_plate,
+                "preferred_trip_index": preferred_trip_index,
+                "manual_transfer": preferred_trip_index is not None,
+                "scheduled_trip_indices": scheduled_trip_indices,
                 "planned_segments": [],
             }
             states.append(state)
@@ -709,8 +824,10 @@ class DeliveryStore:
         daily_priorities: Dict[str, List[Dict[str, Any]]] = {d: [] for d in DAYS}
 
         for ti, trip in enumerate(trips):
-            branches_upper = {b.upper() for b in trip["branches"]}
-            eligible = [s for s in states if s["branch"].upper() in branches_upper and s["remaining_quantity"] > 1e-9]
+            # An allocation is eligible only on one of its resolved trip indices. This supports
+            # a direct manual truck transfer without double-loading the same allocation on its
+            # original route before the selected rebalance trip.
+            eligible = [s for s in states if ti in s.get("scheduled_trip_indices", []) and s["remaining_quantity"] > 1e-9]
             eligible.sort(key=lambda x: (
                 _class_rank(x.get("class")),
                 _status_rank(x.get("stock_status")),
@@ -751,6 +868,8 @@ class DeliveryStore:
                 else:
                     system_remarks = "PLANNED THIS TRIP"
                     dispatch_status = "PLANNED"
+                if state.get("manual_transfer") and state.get("preferred_trip_index") == ti and state.get("preferred_day") and state.get("preferred_plate"):
+                    system_remarks = f"MANUAL REBALANCE TO {state.get('preferred_day').upper()} • {state.get('preferred_plate')} • {system_remarks}"
                 if not state.get("index_known"):
                     unknown_models.add(state.get("model"))
                 combined_remarks = " • ".join(x for x in [state.get("user_remarks"), system_remarks] if x)
@@ -778,6 +897,9 @@ class DeliveryStore:
                     "system_remarks": system_remarks,
                     "user_remarks": state.get("user_remarks", ""),
                     "remarks": combined_remarks,
+                    "preferred_day": state.get("preferred_day", ""),
+                    "preferred_plate": state.get("preferred_plate", ""),
+                    "manual_transfer": bool(state.get("manual_transfer")),
                 }
                 priority_items.append(item)
                 if planned > 0:
@@ -787,7 +909,12 @@ class DeliveryStore:
                     })
 
             branch_details: List[Dict[str, Any]] = []
-            for branch in trip["branches"]:
+            effective_branches = list(trip["branches"])
+            for moved_state in eligible:
+                moved_branch = _clean(moved_state.get("branch"))
+                if moved_branch and moved_branch.upper() not in {b.upper() for b in effective_branches}:
+                    effective_branches.append(moved_branch)
+            for branch in effective_branches:
                 bkey = branch.upper()
                 original_states = allocations_by_branch.get(bkey, [])
                 items = [x for x in priority_items if _clean(x.get("branch")).upper() == bkey]
@@ -801,9 +928,11 @@ class DeliveryStore:
                 class_a_qty = sum(_num(x.get("quantity")) for x in items if _clean(x.get("class")).upper() == "A")
                 planned_class_a_qty = sum(_num(x.get("planned_units")) for x in items if _clean(x.get("class")).upper() == "A")
                 risk_qty = sum(_num(x.get("quantity")) for x in items if _is_risk_status(x.get("stock_status")))
-                next_slots = [x for x in branch_trip_indices.get(bkey, []) if x > ti]
+                next_slots = sorted({
+                    x for state_row in original_states for x in state_row.get("scheduled_trip_indices", []) if x > ti
+                })
                 next_trip = trips[next_slots[0]] if next_slots else None
-                frequency = len(branch_trip_indices.get(bkey, []))
+                frequency = len(sorted({x for state_row in original_states for x in state_row.get("scheduled_trip_indices", [])})) if original_states else len(branch_trip_indices.get(bkey, []))
                 detail = {
                     "day": trip["day"],
                     "trip_no": trip["day_trip_no"],
@@ -854,7 +983,7 @@ class DeliveryStore:
                 "plate": trip["plate"],
                 "description": trip["description"],
                 "capacity": trip["capacity"],
-                "branches": list(trip["branches"]),
+                "branches": list(effective_branches),
                 "branch_details": branch_details,
                 "areas": sorted({x.get("area", "") for x in branch_details if x.get("area")}),
                 "load_index": requested_load,
@@ -871,7 +1000,7 @@ class DeliveryStore:
                 "backorder_units": backorder_units,
                 "priority_items": priority_items,
                 "unknown_models": sorted(m for m in unknown_models if m),
-                "empty_scheduled_branches": [x["branch"] for x in branch_details if not x["has_allocation"]],
+                "empty_scheduled_branches": [x["branch"] for x in branch_details if not x["has_allocation"] and x["branch"].upper() in {b.upper() for b in trip["branches"]}],
                 "completed_earlier_branches": [x["branch"] for x in branch_details if x.get("completed_earlier")],
             }
             daily_assignments[trip["day"]].append(assignment)

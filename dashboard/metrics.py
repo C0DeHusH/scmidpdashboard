@@ -19,7 +19,7 @@ TARGET_KPIS = [
 ]
 
 KPI_META = {
-    "MC Class A Doi": {"unit": "days", "label": "MC Class A DoI", "good": "low"},
+    "MC Class A Doi": {"unit": "days", "label": "MC Class A DoI", "good": "high"},
     "MUTI MC : DoI": {"unit": "days", "label": "MUTI MC DoI", "good": "balanced"},
     "Overall Class A Stock Out Rate": {"unit": "percent", "label": "Overall Class A Stock-Out", "good": "low"},
     "MUTI MC : Stock Outrate - Per Branch": {"unit": "percent", "label": "Stock-Out Rate · Per Branch", "good": "low"},
@@ -73,6 +73,11 @@ def _trend(values: List[float]) -> List[float]:
 
 def _pct(rate: float) -> float:
     return round(rate * 100.0, 4)
+
+
+def _ceil_doi(value: Any) -> int:
+    """Approved DoI display rule: always round fractional days upward."""
+    return int(math.ceil(max(0.0, _num(value))))
 
 
 @dataclass
@@ -208,7 +213,7 @@ class DashboardStore:
                 "brand": _clean(get(row, "BRAND")),
                 "avg_daily_sale": _num(get(row, "Avg. Daily Sale (Qty)")),
                 "inventory": _num(get(row, "Inv. Qty Total")),
-                "doi": _num(get(row, "DoI (Branch)")),
+                "doi": _ceil_doi(get(row, "DoI (Branch)")),
                 "stock_status": _clean(get(row, "Stock Status (branch)")),
                 "suggested_transfer": _num(get(row, "Suggested Transfer")),
             })
@@ -252,11 +257,11 @@ class DashboardStore:
                 "unit_cost": _num(get(row, "Cost")),
                 "avg_daily_sale": _num(get(row, "Avg. Daily Sale (Qty)")),
                 "inventory": _num(get(row, "Inv. Qty Total")),
-                "doi": _num(get(row, "DoI")),
+                "doi": _ceil_doi(get(row, "DoI")),
                 "stock_status": _clean(get(row, "Stock Status")),
                 "po_balance": _num(get(row, "PO Balance")),
                 "source_allocation": _num(get(row, "Allocation")),
-                "source_new_doi": _num(get(row, "DoI after PO Bal")),
+                "source_new_doi": _ceil_doi(get(row, "DoI after PO Bal")),
                 "stock_status_after_po": _clean(get(row, "Stock Status after PO Bal")),
                 "reorder": _num(get(row, "Re-order")),
             })
@@ -303,7 +308,7 @@ class DashboardStore:
             row["remarks"] = remarks
             inv_after_po = row["inventory"] + row["po_balance"] + allocation
             row["inventory_after_po"] = round(inv_after_po, 6)
-            row["new_doi"] = round((inv_after_po / row["avg_daily_sale"]) if row["avg_daily_sale"] > 0 else 0.0, 6)
+            row["new_doi"] = _ceil_doi((inv_after_po / row["avg_daily_sale"]) if row["avg_daily_sale"] > 0 else 0.0)
             row["total_amount"] = round(row["unit_cost"] * allocation, 4)
             return row
 
@@ -347,6 +352,44 @@ class DashboardStore:
             "rows": rows,
         }
 
+    def reorder_model_card(self) -> Dict[str, Any]:
+        """Executive ABC model snapshot sourced directly from the imported Re-order sheet.
+
+        Rank is preserved from the workbook so the dashboard never maintains a
+        second ranking source. Rows are sorted A -> B -> C, then imported Rank.
+        """
+        with self._lock:
+            records = [dict(r) for r in self.management_records]
+            title = self.management_title
+            sheet_name = self.management_sheet_name
+
+        class_order = {"A": 0, "B": 1, "C": 2}
+        rows = [r for r in records if r.get("class") in class_order]
+        rows.sort(key=lambda r: (class_order.get(r.get("class"), 9), int(r.get("rank", 999999)), r.get("model", "")))
+
+        class_counts = {cls: sum(1 for r in rows if r.get("class") == cls) for cls in ("A", "B", "C")}
+        class_avg_doi = {}
+        for cls in ("A", "B", "C"):
+            values = [float(r.get("doi", 0) or 0) for r in rows if r.get("class") == cls]
+            class_avg_doi[cls] = _ceil_doi(sum(values) / len(values)) if values else 0
+
+        return {
+            "source_sheet": sheet_name,
+            "title": title,
+            "summary": {"counts": class_counts, "avg_doi": class_avg_doi, "models": len(rows)},
+            "rows": [
+                {
+                    "model": r.get("model", ""),
+                    "brand": r.get("brand", ""),
+                    "class": r.get("class", ""),
+                    "rank": int(r.get("rank", 999999)),
+                    "doi": _ceil_doi(r.get("doi", 0)),
+                    "stock_status": r.get("stock_status", ""),
+                }
+                for r in rows
+            ],
+        }
+
     def _extract_kpi(self, rows: List[List[Any]], target: str) -> Dict[str, Any]:
         idx = None
         for i, row in enumerate(rows):
@@ -387,7 +430,7 @@ class DashboardStore:
             values.append(fv)
 
         meta = KPI_META[target]
-        display_values = [_pct(v) for v in values] if meta["unit"] == "percent" else [round(v, 3) for v in values]
+        display_values = [_pct(v) for v in values] if meta["unit"] == "percent" else [_ceil_doi(v) for v in values]
         trend = _trend(display_values)
         latest = display_values[-1] if display_values else None
         delta = (display_values[-1] - display_values[-2]) if len(display_values) > 1 else None
@@ -500,7 +543,7 @@ class DashboardStore:
                     "stock_status": r["stock_status"],
                     "inventory": round(r["inventory"], 3),
                     "suggested_transfer": round(r["suggested_transfer"], 3),
-                    "doi": round(r["doi"], 3),
+                    "doi": _ceil_doi(r["doi"]),
                     "avg_daily_sale": round(r["avg_daily_sale"], 6),
                     "brand": r["brand"],
                 })
@@ -523,7 +566,7 @@ class DashboardStore:
             "rank": r["rank"], "inventory": round(r["inventory"], 3),
             "stock_status": r["stock_status"],
             "suggested_transfer": round(r["suggested_transfer"], 3),
-            "doi": round(r["doi"], 3),
+            "doi": _ceil_doi(r["doi"]),
             "avg_daily_sale": round(r["avg_daily_sale"], 6),
         }
 
@@ -581,7 +624,7 @@ class DashboardStore:
                 "areas": len({r["area"] for r in rows if r["area"]}),
                 "inventory": round(sum(r["inventory"] for r in rows), 4),
                 "suggested_transfer": round(sum(r["suggested_transfer"] for r in rows), 4),
-                "avg_doi": round(sum(r["doi"] for r in rows) / len(rows), 4) if rows else 0.0,
+                "avg_doi": _ceil_doi(sum(r["doi"] for r in rows) / len(rows)) if rows else 0,
                 "stockout_count": so,
                 "stockout_rate": _pct(so / len(valid)) if valid else 0.0,
                 "statuses": dict(sorted(statuses.items())),
@@ -711,7 +754,7 @@ class DashboardStore:
                 "areas": len({r["area"] for r in rows if r["area"]}),
                 "inventory": round(sum(r["inventory"] for r in rows), 4),
                 "suggested_transfer": round(sum(r["suggested_transfer"] for r in rows), 4),
-                "avg_doi": round(sum(r["doi"] for r in rows) / len(rows), 4) if rows else 0.0,
+                "avg_doi": _ceil_doi(sum(r["doi"] for r in rows) / len(rows)) if rows else 0,
                 "stockout_count": so,
                 "stockout_rate": _pct(so / len(valid)) if valid else 0.0,
                 "class_a_records": len(class_a),
@@ -810,7 +853,7 @@ class DashboardStore:
             "branches": len({r["branch"] for r in filtered if r["branch"]}),
             "inventory": round(sum(r["inventory"] for r in filtered), 4),
             "suggested_transfer": round(sum(r["suggested_transfer"] for r in filtered), 4),
-            "avg_doi": round(sum(r["doi"] for r in filtered) / len(filtered), 4) if filtered else 0.0,
+            "avg_doi": _ceil_doi(sum(r["doi"] for r in filtered) / len(filtered)) if filtered else 0,
             "stockout_count": stockouts,
             "stockout_rate": _pct(stockouts / len(valid_status)) if valid_status else 0.0,
         }
@@ -833,7 +876,7 @@ class DashboardStore:
                 "records": len(rows),
                 "inventory": round(sum(r["inventory"] for r in rows), 4),
                 "suggested_transfer": round(sum(r["suggested_transfer"] for r in rows), 4),
-                "avg_doi": round(sum(r["doi"] for r in rows) / len(rows), 4),
+                "avg_doi": _ceil_doi(sum(r["doi"] for r in rows) / len(rows)),
                 "stockout_count": so,
                 "stockout_rate": _pct(so / len(valid)) if valid else 0.0,
                 "statuses": dict(sorted(statuses.items())),
@@ -862,7 +905,7 @@ class DashboardStore:
                     "records": len(ar),
                     "inventory": round(sum(r["inventory"] for r in ar), 4),
                     "suggested_transfer": round(sum(r["suggested_transfer"] for r in ar), 4),
-                    "avg_doi": round(sum(r["doi"] for r in ar) / len(ar), 4),
+                    "avg_doi": _ceil_doi(sum(r["doi"] for r in ar) / len(ar)),
                     "stockout_count": so,
                     "stockout_rate": _pct(so / len(valid)) if valid else 0.0,
                     "statuses": dict(sorted(statuses.items())),
@@ -877,7 +920,7 @@ class DashboardStore:
                 "branches": len({r["branch"] for r in rows if r["branch"]}),
                 "inventory": round(sum(r["inventory"] for r in rows), 4),
                 "suggested_transfer": round(sum(r["suggested_transfer"] for r in rows), 4),
-                "avg_doi": round(sum(r["doi"] for r in rows) / len(rows), 4) if rows else 0.0,
+                "avg_doi": _ceil_doi(sum(r["doi"] for r in rows) / len(rows)) if rows else 0,
                 "stockout_rate": _pct(so_all / len(valid_all)) if valid_all else 0.0,
                 "cells": cells,
             })
@@ -915,4 +958,5 @@ class DashboardStore:
             "area": self.area_dashboard("Overall"),
             "branch": self.branch_dashboard(branch),
             "status_summary": self.status_summary(),
+            "reorder_card": self.reorder_model_card(),
         }
