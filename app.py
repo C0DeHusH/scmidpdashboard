@@ -266,14 +266,14 @@ def admin_export_management():
 
 @app.get("/api/delivery")
 def api_delivery():
-    day = request.args.get("day", "Monday")
+    day = request.args.get("day", "Whole Week")
     return jsonify(delivery_store.bootstrap(day, store.raw_records))
 
 
 @app.get("/delivery/template")
 def delivery_template():
     path = BASE / "data" / "Delivery_Allocation_Import_Template.xlsx"
-    return send_file(path, as_attachment=True, download_name="Delivery_Allocation_Import_Template.xlsx")
+    return send_file(path, as_attachment=True, download_name="Unit_Allocation_Template.xlsx")
 
 
 @app.get("/api/branch-models")
@@ -436,23 +436,47 @@ def admin_delivery_allocations():
     return jsonify({"ok": True, "allocations": allocations})
 
 
+@app.patch("/admin/delivery/allocation/<int:index>")
+@admin_required
+def admin_delivery_allocation_update(index: int):
+    payload = request.get_json(force=True, silent=True) or {}
+    try:
+        allocations = delivery_store.update_allocation(index, payload)
+    except (ValueError, IndexError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Unable to update allocation: {exc}"}), 400
+    return jsonify({"ok": True, "allocations": allocations, "message": "Allocation updated. Delivery capacity has been recalculated."})
+
+
+@app.delete("/admin/delivery/allocation/<int:index>")
+@admin_required
+def admin_delivery_allocation_delete(index: int):
+    try:
+        allocations = delivery_store.delete_allocation(index)
+    except (ValueError, IndexError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Unable to delete allocation: {exc}"}), 400
+    return jsonify({"ok": True, "allocations": allocations, "message": "Allocation deleted. Delivery capacity has been recalculated."})
+
+
 @app.post("/admin/delivery/clear")
 @admin_required
 def admin_delivery_clear():
     payload = request.get_json(force=True, silent=True) or {}
     target = str(payload.get("target", "all")).strip().lower()
-    if target not in {"all", "schedule", "allocations"}:
-        return jsonify({"error": "Clear target must be all, schedule or allocations."}), 400
+    if target not in {"all", "allocations"}:
+        return jsonify({"error": "Weekly Truck Schedule is retained until Clear Board. Clear target must be all or allocations."}), 400
     try:
-        if target in {"all", "schedule"}:
+        if target == "all":
             delivery_store.update_schedule([])
         if target in {"all", "allocations"}:
             delivery_store.replace_allocations([])
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
     messages = {
-        "all": "Delivery Control Board cleared. Schedule and allocations are now empty; masterlists were preserved.",
-        "schedule": "Weekly Truck Schedule cleared. Delivery masterlists and allocations were preserved.",
+        "all": "Delivery Control Board cleared. All schedules, allocation batches, dispatch analysis and pending delivery-board data are now empty; masterlists were preserved.",
         "allocations": "All delivery allocation rows cleared. Weekly Truck Schedule and masterlists were preserved.",
     }
     return jsonify({"ok": True, "target": target, "message": messages[target]})

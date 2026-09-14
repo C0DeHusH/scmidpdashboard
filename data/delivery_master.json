@@ -728,6 +728,6 @@
   "settings": {
     "underutilized_pct": 75,
     "full_pct": 90,
-    "max_branches_per_truck": 2
+    "max_branches_per_truck": 6
   }
 }

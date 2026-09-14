@@ -11,7 +11,7 @@ import shutil
 
 from .xlsx_reader import XlsxReader
 
-DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
 
 def _clean(v: Any) -> str:
@@ -28,6 +28,19 @@ def _num(v: Any, default: float = 0.0) -> float:
 
 def _norm_header(v: Any) -> str:
     return " ".join(_clean(v).lower().replace("_", " ").replace("-", " ").split())
+
+
+def _allocation_class(v: Any) -> str:
+    """Normalize allocation Class values from imports/manual entry to A/B/C."""
+    s = _clean(v).upper().replace("_", " ").replace("-", " ")
+    s = " ".join(s.split())
+    if s in {"A", "CLASS A", "A CLASS"}:
+        return "A"
+    if s in {"B", "CLASS B", "B CLASS"}:
+        return "B"
+    if s in {"C", "CLASS C", "C CLASS"}:
+        return "C"
+    return ""
 
 
 def _class_rank(cls: Optional[str]) -> int:
@@ -117,37 +130,48 @@ class DeliveryStore:
         s = self.master["settings"]
         s.setdefault("underutilized_pct", 75)
         s.setdefault("full_pct", 90)
-        s.setdefault("max_branches_per_truck", 2)
+        s.setdefault("max_branches_per_truck", 6)
+        # v2.26: the uploaded operating schedule contains route days with more than two branches.
+        # Upgrade legacy settings so valid multi-stop routes are not rejected.
+        if int(max(1, _num(s.get("max_branches_per_truck"), 6))) < 6:
+            s["max_branches_per_truck"] = 6
+            self._save_master()
 
     def _migrate_legacy_schedule(self) -> None:
-        """Upgrade v2.0 Day+Branch rows to v2.1 Day+Truck+Branch rows.
+        """Upgrade legacy schedules without removing repeated weekly branch visits.
 
-        Legacy schedules had no fixed truck. To avoid losing a user's existing weekly plan,
-        distribute legacy rows deterministically across active trucks, respecting the configured
-        per-truck branch limit. The user can then refine the truck assignments in the new UI.
+        v2.26 treats every Day + Truck + Branch row as a real schedule slot. A branch may
+        therefore appear more than once during the week (or even on two truck routes on the
+        same day). Older rows without a truck are distributed to active trucks while preserving
+        source order.
         """
-        if not self.schedule or all(_clean(x.get("plate")) for x in self.schedule):
+        if not self.schedule:
             return
         trucks = [_clean(t.get("plate")) for t in self.master.get("trucks", []) if t.get("active", True) and _clean(t.get("plate"))]
         if not trucks:
             return
-        max_branches = int(max(1, min(2, _num(self.master.get("settings", {}).get("max_branches_per_truck"), 2))))
+        max_branches = int(max(1, min(12, _num(self.master.get("settings", {}).get("max_branches_per_truck"), 6))))
         slot_counts: Dict[Tuple[str, str], int] = defaultdict(int)
-        migrated: List[Dict[str, str]] = []
-        seen_branches = set()
-        for row in sorted(self.schedule, key=lambda x: (DAYS.index(_clean(x.get("day"))) if _clean(x.get("day")) in DAYS else 99, _clean(x.get("branch")))):
+        migrated: List[Dict[str, Any]] = []
+        seen_exact = set()
+        for order, row in enumerate(self.schedule):
             day = _clean(row.get("day"))
             branch = _clean(row.get("branch"))
-            if day not in DAYS or not branch or branch.upper() in seen_branches:
+            if day not in DAYS or not branch:
                 continue
             plate = _clean(row.get("plate"))
             if not plate:
                 plate = next((p for p in trucks if slot_counts[(day, p.upper())] < max_branches), trucks[0])
+            key = (day, plate.upper(), branch.upper())
+            if key in seen_exact:
+                continue
+            seen_exact.add(key)
             slot_counts[(day, plate.upper())] += 1
-            seen_branches.add(branch.upper())
-            migrated.append({"day": day, "plate": plate, "branch": branch})
-        self.schedule = migrated
-        self._save_schedule()
+            migrated.append({"day": day, "plate": plate, "branch": branch, "sequence": int(_num(row.get("sequence"), order + 1))})
+        migrated.sort(key=lambda x: (DAYS.index(x["day"]), int(x.get("sequence", 0)), x["plate"], x["branch"]))
+        if migrated != self.schedule:
+            self.schedule = migrated
+            self._save_schedule()
 
     def _save_master(self) -> None:
         self.master_path.write_text(json.dumps(self.master, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -178,8 +202,14 @@ class DeliveryStore:
                 self._save_master()
 
     def bootstrap(self, day: str, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-        selected_day = day if day in DAYS or day == "Whole Week" else DAYS[0]
-        analysis = self.analyze_week(dashboard_records) if selected_day == "Whole Week" else self.analyze(selected_day, dashboard_records)
+        selected_day = day if day in DAYS or day == "Whole Week" else "Whole Week"
+        plan = self._build_week_plan(dashboard_records)
+        if selected_day == "Whole Week":
+            analysis = dict(plan["weekly"])
+        else:
+            analysis = dict(plan["daily"].get(selected_day) or {})
+            # Keep the complete Monday-Saturday ribbon visible even while drilling into one day.
+            analysis["daily_summaries"] = list(plan["weekly"].get("daily_summaries") or [])
         with self._lock:
             master = json.loads(json.dumps(self.master))
             allocations = list(self.allocations)
@@ -204,7 +234,7 @@ class DeliveryStore:
                     raise ValueError("Settings must be an object.")
                 under = min(100.0, max(0.0, _num(rows.get("underutilized_pct"), 75)))
                 full = min(100.0, max(under, _num(rows.get("full_pct"), 90)))
-                max_br = int(max(1, min(2, _num(rows.get("max_branches_per_truck"), 2))))
+                max_br = int(max(1, min(12, _num(rows.get("max_branches_per_truck"), 6))))
                 self.master["settings"] = {"underutilized_pct": under, "full_pct": full, "max_branches_per_truck": max_br}
             elif section == "trucks":
                 clean_rows = []
@@ -241,7 +271,11 @@ class DeliveryStore:
             return json.loads(json.dumps(self.master))
 
     def import_schedule(self, path: str | Path) -> Tuple[List[Dict[str, str]], List[str]]:
-        """Import and replace the weekly truck schedule from XLSX/XLSM/CSV."""
+        """Import and replace the weekly truck schedule from XLSX/XLSM/CSV.
+
+        Repeated branches are intentionally allowed. Each Day + Truck + Branch row is one
+        schedule slot, enabling branches to receive one, two or more deliveries per week.
+        """
         path = Path(path)
         warnings: List[str] = []
         source_rows: List[Dict[str, Any]] = []
@@ -297,9 +331,9 @@ class DeliveryStore:
 
         trucks = {_clean(t.get("plate")).upper(): t for t in self.master.get("trucks", []) if t.get("active", True) and _clean(t.get("plate"))}
         branches = {_clean(b.get("branch")).upper(): b for b in self.master.get("branches", []) if b.get("active", True) and _clean(b.get("branch"))}
-        seen_branch = set()
+        seen_exact = set()
         slot_counts: Dict[Tuple[str, str], int] = defaultdict(int)
-        max_branches = int(max(1, min(2, _num(self.master.get("settings", {}).get("max_branches_per_truck"), 2))))
+        max_branches = int(max(1, min(12, _num(self.master.get("settings", {}).get("max_branches_per_truck"), 6))))
 
         for n, row in enumerate(data_rows, start=(header_i or 0) + 2):
             day_raw = val(row, "day")
@@ -312,7 +346,7 @@ class DeliveryStore:
             truck = trucks.get(plate_raw.upper())
             branch = branches.get(branch_raw.upper())
             if not day:
-                warnings.append(f"Row {n}: invalid Day '{day_raw}' skipped.")
+                warnings.append(f"Row {n}: invalid Day '{day_raw}' skipped. Delivery week is Monday to Saturday.")
                 continue
             if not truck:
                 warnings.append(f"Row {n}: Truck '{plate_raw}' is not active/in Truck Master; skipped.")
@@ -325,16 +359,23 @@ class DeliveryStore:
             canonical_area = _clean(branch.get("area"))
             if area_raw and canonical_area and area_raw.strip().upper() != canonical_area.upper():
                 warnings.append(f"Row {n}: Area '{area_raw}' corrected to '{canonical_area}' for {canonical_branch}.")
-            if canonical_branch.upper() in seen_branch:
-                warnings.append(f"Row {n}: duplicate Branch '{canonical_branch}' skipped; each Branch can have only one weekly slot.")
+            key = (day, canonical_plate.upper(), canonical_branch.upper())
+            if key in seen_exact:
+                warnings.append(f"Row {n}: exact duplicate {day} / {canonical_plate} / {canonical_branch} skipped.")
                 continue
             slot_key = (day, canonical_plate.upper())
             if slot_counts[slot_key] >= max_branches:
-                warnings.append(f"Row {n}: {canonical_plate} on {day} already has the maximum {max_branches} branch assignment(s); skipped.")
+                warnings.append(f"Row {n}: {canonical_plate} on {day} already has the configured maximum {max_branches} route stop(s); skipped.")
                 continue
-            seen_branch.add(canonical_branch.upper())
+            seen_exact.add(key)
             slot_counts[slot_key] += 1
-            source_rows.append({"day": day, "plate": canonical_plate, "branch": canonical_branch, "area": canonical_area})
+            source_rows.append({
+                "day": day,
+                "plate": canonical_plate,
+                "branch": canonical_branch,
+                "area": canonical_area,
+                "sequence": len(source_rows) + 1,
+            })
 
         if not source_rows:
             raise ValueError("No valid Weekly Truck Schedule rows were found. The existing schedule was not changed.")
@@ -344,19 +385,14 @@ class DeliveryStore:
         return saved, warnings
 
     def update_schedule(self, rows: Any) -> List[Dict[str, str]]:
-        """Save the fixed weekly trip plan: Day + Truck + Branch.
-
-        A branch has one weekly schedule slot so an imported allocation can map to a
-        deterministic day/truck. Each truck/day accepts up to the configured branch limit.
-        """
-        clean_rows: List[Dict[str, str]] = []
-        seen_slots = set()
-        seen_branches = set()
+        """Save the fixed weekly trip plan while allowing repeated branch delivery slots."""
+        clean_rows: List[Dict[str, Any]] = []
+        seen_exact = set()
         active_branches = {_clean(b.get("branch")).upper() for b in self.master.get("branches", []) if b.get("active", True)}
         active_trucks = {_clean(t.get("plate")).upper() for t in self.master.get("trucks", []) if t.get("active", True)}
-        max_branches = int(max(1, min(2, _num(self.master.get("settings", {}).get("max_branches_per_truck"), 2))))
+        max_branches = int(max(1, min(12, _num(self.master.get("settings", {}).get("max_branches_per_truck"), 6))))
         slot_counts: Dict[Tuple[str, str], int] = defaultdict(int)
-        for r in rows or []:
+        for order, r in enumerate(rows or []):
             day = _clean(r.get("day"))
             plate = _clean(r.get("plate"))
             branch = _clean(r.get("branch"))
@@ -364,39 +400,53 @@ class DeliveryStore:
                 continue
             if plate.upper() not in active_trucks or branch.upper() not in active_branches:
                 continue
-            # One allocation destination per branch avoids ambiguity after import.
-            if branch.upper() in seen_branches:
-                continue
             key = (day, plate.upper(), branch.upper())
             slot_key = (day, plate.upper())
-            if key in seen_slots or slot_counts[slot_key] >= max_branches:
+            if key in seen_exact or slot_counts[slot_key] >= max_branches:
                 continue
-            seen_slots.add(key)
-            seen_branches.add(branch.upper())
+            seen_exact.add(key)
             slot_counts[slot_key] += 1
-            clean_rows.append({"day": day, "plate": plate, "branch": branch})
-        clean_rows.sort(key=lambda x: (DAYS.index(x["day"]), x["plate"], x["branch"]))
+            clean_rows.append({
+                "day": day,
+                "plate": plate,
+                "branch": branch,
+                "sequence": int(_num(r.get("sequence"), order + 1)),
+            })
+        clean_rows.sort(key=lambda x: (DAYS.index(x["day"]), int(x.get("sequence", 0)), x["plate"], x["branch"]))
+        # Re-number after sorting so the order stays deterministic after later edits/imports.
+        for i, row in enumerate(clean_rows, 1):
+            row["sequence"] = i
         with self._lock:
             self.schedule = clean_rows
             self._save_schedule()
-        return list(clean_rows)
+        return [dict(x) for x in clean_rows]
 
     def allocation_mapping(self) -> List[Dict[str, Any]]:
-        """Map every imported allocation to the branch's saved weekly Day + Truck."""
+        """Map each allocation to every saved delivery slot for that branch."""
         with self._lock:
             allocations = list(self.allocations)
             schedule = list(self.schedule)
-        schedule_by_branch = {_clean(x.get("branch")).upper(): x for x in schedule if _clean(x.get("branch"))}
+        ordered = sorted(
+            [x for x in schedule if _clean(x.get("branch")) and _clean(x.get("plate")) and _clean(x.get("day")) in DAYS],
+            key=lambda x: (DAYS.index(_clean(x.get("day"))), int(_num(x.get("sequence"), 0)), _clean(x.get("plate"))),
+        )
+        slots_by_branch: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for slot in ordered:
+            slots_by_branch[_clean(slot.get("branch")).upper()].append(slot)
         out: List[Dict[str, Any]] = []
         for i, a in enumerate(allocations):
             branch = _clean(a.get("branch"))
-            slot = schedule_by_branch.get(branch.upper())
+            slots = slots_by_branch.get(branch.upper(), [])
+            first = slots[0] if slots else None
+            trip_labels = [f"{_clean(x.get('day'))} • {_clean(x.get('plate'))}" for x in slots]
             out.append({
                 **a,
                 "allocation_index": i,
-                "scheduled_day": _clean(slot.get("day")) if slot else "",
-                "plate": _clean(slot.get("plate")) if slot else "",
-                "schedule_status": "SCHEDULED" if slot else "UNSCHEDULED",
+                "scheduled_day": _clean(first.get("day")) if first else "",
+                "plate": _clean(first.get("plate")) if first else "",
+                "scheduled_trips": trip_labels,
+                "delivery_frequency": len(slots),
+                "schedule_status": (f"SCHEDULED • {len(slots)} TRIP{'S' if len(slots) != 1 else ''}/WEEK" if slots else "UNSCHEDULED"),
             })
         return out
 
@@ -408,11 +458,52 @@ class DeliveryStore:
             qty = _num(r.get("quantity"))
             if not model or not branch or qty <= 0:
                 continue
-            clean_rows.append({"model": model, "branch": branch, "quantity": qty, "remarks": _clean(r.get("remarks"))})
+            clean_rows.append({
+                "model": model,
+                "branch": branch,
+                "quantity": qty,
+                "class": _allocation_class(r.get("class")),
+                "remarks": _clean(r.get("remarks")),
+            })
         with self._lock:
             self.allocations = clean_rows
             self._save_allocations()
         return list(clean_rows)
+
+    def update_allocation(self, index: int, changes: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Update one persisted allocation line and return the full saved allocation list."""
+        with self._lock:
+            if index < 0 or index >= len(self.allocations):
+                raise IndexError("Allocation line was not found. Refresh the Delivery Plan and try again.")
+            current = dict(self.allocations[index])
+            for key in ("model", "branch", "quantity", "class", "remarks"):
+                if key in (changes or {}):
+                    current[key] = changes.get(key)
+            model = _clean(current.get("model"))
+            branch = _clean(current.get("branch"))
+            qty = _num(current.get("quantity"))
+            if not model or not branch:
+                raise ValueError("Model and Branch are required for an allocation line.")
+            if qty <= 0:
+                raise ValueError("Quantity must be greater than zero. Use Delete to remove the allocation line.")
+            self.allocations[index] = {
+                "model": model,
+                "branch": branch,
+                "quantity": qty,
+                "class": _allocation_class(current.get("class")),
+                "remarks": _clean(current.get("remarks")),
+            }
+            self._save_allocations()
+            return [dict(x) for x in self.allocations]
+
+    def delete_allocation(self, index: int) -> List[Dict[str, Any]]:
+        """Delete one persisted allocation line and return the remaining allocations."""
+        with self._lock:
+            if index < 0 or index >= len(self.allocations):
+                raise IndexError("Allocation line was not found. Refresh the Delivery Plan and try again.")
+            self.allocations.pop(index)
+            self._save_allocations()
+            return [dict(x) for x in self.allocations]
 
     def import_allocations(self, path: str | Path) -> Tuple[List[Dict[str, Any]], List[str]]:
         path = Path(path)
@@ -434,6 +525,7 @@ class DeliveryStore:
             "model": {"model", "unit", "item", "item description", "unit / item description", "standard description"},
             "branch": {"branch", "retail branch", "branch name"},
             "quantity": {"quantity", "qty", "allocation", "allocated qty", "allocated quantity"},
+            "class": {"class", "classification", "abc class", "class abc", "item class", "model class"},
             "remarks": {"remarks", "remark", "notes", "note"},
         }
         for sheet_name, sheet_rows in candidate_sheets:
@@ -453,10 +545,12 @@ class DeliveryStore:
             if header_idx is not None:
                 break
         if header_idx is None:
-            raise ValueError("Import requires columns: Model, Branch, Quantity, Remarks on any worksheet.")
+            raise ValueError("Import requires columns: Model, Branch and Quantity. The approved template also includes CLASS and Remarks.")
 
         parsed = []
         warnings: List[str] = []
+        if "class" not in mapping:
+            warnings.append("CLASS column was not found. Class will fall back to Dashboard data where available; use the new Unit Allocation Template for explicit A/B/C allocation priority.")
         for rno, row in enumerate(rows[header_idx + 1:], header_idx + 2):
             def val(key: str) -> Any:
                 c = mapping.get(key)
@@ -464,13 +558,17 @@ class DeliveryStore:
             model = _clean(val("model"))
             branch = _clean(val("branch"))
             qty = _num(val("quantity"))
+            raw_class = _clean(val("class"))
+            alloc_class = _allocation_class(raw_class)
             remarks = _clean(val("remarks"))
-            if not model and not branch and qty == 0:
+            if not model and not branch and qty == 0 and not raw_class:
                 continue
             if not model or not branch or qty <= 0:
                 warnings.append(f"Row {rno} skipped: Model, Branch and positive Quantity are required.")
                 continue
-            parsed.append({"model": model, "branch": branch, "quantity": qty, "remarks": remarks})
+            if raw_class and not alloc_class:
+                warnings.append(f"Row {rno}: CLASS '{raw_class}' is not A, B or C; dashboard class will be used when available.")
+            parsed.append({"model": model, "branch": branch, "quantity": qty, "class": alloc_class, "remarks": remarks})
         if not parsed:
             raise ValueError("No valid allocation rows were found.")
         self.replace_allocations(parsed)
@@ -493,271 +591,441 @@ class DeliveryStore:
                 out[key] = r
         return out
 
-    def analyze_week(self, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-        """Combine all seven saved delivery days into one whole-week analysis view."""
-        records = list(dashboard_records)
-        daily = [self.analyze(day, records) for day in DAYS]
-        assignments: List[Dict[str, Any]] = []
-        priorities: List[Dict[str, Any]] = []
-        for result in daily:
-            day_name = result.get("day", "")
-            for row in result.get("assignments", []) or []:
-                if row.get("branches"):
-                    assignments.append({**row, "day": day_name})
-            for row in result.get("branch_priorities", []) or []:
-                priorities.append({**row, "day": day_name})
+    def _build_week_plan(self, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+        """Build one capacity-aware Monday-Saturday dispatch plan.
 
-        total_capacity = sum(_num((x.get("summary") or {}).get("total_capacity")) for x in daily)
-        total_load = sum(_num((x.get("summary") or {}).get("total_load_index")) for x in daily)
-        priorities.sort(key=lambda x: (DAYS.index(x.get("day")) if x.get("day") in DAYS else 99, 0 if x.get("has_allocation") else 1, -_num(x.get("class_a_qty")), -_num(x.get("risk_qty")), -_num(x.get("load_index")), _clean(x.get("branch"))))
-        assignments.sort(key=lambda x: (DAYS.index(x.get("day")) if x.get("day") in DAYS else 99, _clean(x.get("plate"))))
-
-        first = daily[0] if daily else {}
-        thresholds = (first.get("thresholds") or {}) if first else {}
-        summary = {
-            "total_load_index": total_load,
-            "total_capacity": total_capacity,
-            "fleet_utilization": (total_load / total_capacity * 100.0) if total_capacity else 0.0,
-            "scheduled_branches": sum(_num((x.get("summary") or {}).get("scheduled_branches")) for x in daily),
-            "branches_with_allocation": sum(_num((x.get("summary") or {}).get("branches_with_allocation")) for x in daily),
-            "branches_without_allocation": sum(_num((x.get("summary") or {}).get("branches_without_allocation")) for x in daily),
-            "class_a_units": sum(_num((x.get("summary") or {}).get("class_a_units")) for x in daily),
-            "overloaded_trucks": sum(_num((x.get("summary") or {}).get("overloaded_trucks")) for x in daily),
-            "underutilized_trucks": sum(_num((x.get("summary") or {}).get("underutilized_trucks")) for x in daily),
-            "idle_trucks": sum(_num((x.get("summary") or {}).get("idle_trucks")) for x in daily),
-        }
-        return {
-            "day": "Whole Week",
-            "scheduled_branches": [p.get("branch", "") for p in priorities],
-            "scheduled_count": int(sum(_num(x.get("scheduled_count")) for x in daily)),
-            "scheduled_trucks": int(sum(_num(x.get("scheduled_trucks")) for x in daily)),
-            "allocation_rows": len(self.allocations),
-            "scoped_allocation_rows": int(sum(_num(x.get("scoped_allocation_rows")) for x in daily)),
-            "unscheduled_allocation_rows": int(_num(first.get("unscheduled_allocation_rows"))) if first else 0,
-            "summary": summary,
-            "assignments": assignments,
-            "branch_priorities": priorities,
-            "unassigned": list(first.get("unassigned", []) or []) if first else [],
-            "thresholds": thresholds,
-        }
-
-    def analyze(self, day: str, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-        """Analyze the saved truck schedule for one day against the imported allocation.
-
-        The schedule is authoritative. Imported rows do not cause branches to be reassigned to
-        another truck. If a scheduled branch has no allocation, the trip remains valid and is
-        shown as "Scheduled / No Allocation". If a scheduled truck is overloaded, the loading
-        recommendation prioritizes Class A first, then stock-risk status within each class.
+        Allocation is consumed only once across the week. If a branch has another saved
+        schedule slot later in the week, capacity overflow automatically rolls forward to
+        that next slot. Residual quantity after the branch's last slot is marked for route
+        adjustment / following-week backorder. Unscheduled branches remain unassigned.
         """
-        if day not in DAYS:
-            day = DAYS[0]
         with self._lock:
-            allocations = list(self.allocations)
-            schedule = list(self.schedule)
+            allocations = [dict(x) for x in self.allocations]
+            schedule = [dict(x) for x in self.schedule]
             master = json.loads(json.dumps(self.master))
 
         model_index, branch_area = self._master_maps()
         dashboard_lookup = self._dashboard_lookup(dashboard_records)
-        active_trucks = [t for t in master.get("trucks", []) if t.get("active", True) and _num(t.get("capacity")) > 0]
-        truck_by_plate = {_clean(t.get("plate")).upper(): t for t in active_trucks}
-        day_schedule = [x for x in schedule if x.get("day") == day and _clean(x.get("plate"))]
-        schedule_by_branch = {_clean(x.get("branch")).upper(): x for x in schedule if _clean(x.get("branch"))}
-
-        allocations_by_branch: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-        unscheduled_rows: List[Dict[str, Any]] = []
-        for i, a in enumerate(allocations):
-            b = _clean(a.get("branch"))
-            slot = schedule_by_branch.get(b.upper())
-            mapped = {**a, "allocation_index": i, "scheduled_day": _clean(slot.get("day")) if slot else "", "plate": _clean(slot.get("plate")) if slot else ""}
-            if not slot:
-                unscheduled_rows.append(mapped)
-                continue
-            allocations_by_branch[b.upper()].append(mapped)
-
-        # Build the selected day's fixed truck slots.
-        branches_by_truck: Dict[str, List[str]] = defaultdict(list)
-        for slot in day_schedule:
-            plate_key = _clean(slot.get("plate")).upper()
-            branch = _clean(slot.get("branch"))
-            if plate_key in truck_by_plate and branch:
-                branches_by_truck[plate_key].append(branch)
-
+        truck_by_plate = {
+            _clean(t.get("plate")).upper(): t
+            for t in master.get("trucks", [])
+            if _clean(t.get("plate")) and _num(t.get("capacity")) > 0
+        }
+        active_trucks = {
+            k: v for k, v in truck_by_plate.items() if v.get("active", True)
+        }
         under_pct = _num(master.get("settings", {}).get("underutilized_pct"), 75)
         full_pct = _num(master.get("settings", {}).get("full_pct"), 90)
-        max_branches = int(master.get("settings", {}).get("max_branches_per_truck", 2) or 2)
-        assignments: List[Dict[str, Any]] = []
-        branch_priorities: List[Dict[str, Any]] = []
+        max_branches = int(max(1, min(12, _num(master.get("settings", {}).get("max_branches_per_truck"), 6))))
 
-        for truck in active_trucks:
-            plate = _clean(truck.get("plate"))
-            plate_key = plate.upper()
-            cap = _num(truck.get("capacity"))
-            scheduled_branches = branches_by_truck.get(plate_key, [])[:max_branches]
-            branch_details: List[Dict[str, Any]] = []
-            all_items: List[Dict[str, Any]] = []
+        # Normalize slots and preserve imported/manual route order. Repeated branches are valid.
+        slots: List[Dict[str, Any]] = []
+        seen_exact = set()
+        for order, row in enumerate(schedule):
+            day = _clean(row.get("day"))
+            plate = _clean(row.get("plate"))
+            branch = _clean(row.get("branch"))
+            if day not in DAYS or not plate or not branch or plate.upper() not in active_trucks:
+                continue
+            key = (day, plate.upper(), branch.upper())
+            if key in seen_exact:
+                continue
+            seen_exact.add(key)
+            slots.append({
+                "day": day,
+                "plate": plate,
+                "branch": branch,
+                "area": branch_area.get(branch.upper(), ""),
+                "sequence": int(_num(row.get("sequence"), order + 1)),
+            })
+        slots.sort(key=lambda x: (DAYS.index(x["day"]), x["sequence"], x["plate"], x["branch"]))
+
+        # A trip is one Day + Truck route. Multiple branch rows under the same route share capacity.
+        trips: List[Dict[str, Any]] = []
+        trip_by_key: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        for slot in slots:
+            key = (slot["day"], slot["plate"].upper())
+            trip = trip_by_key.get(key)
+            if trip is None:
+                truck = active_trucks.get(slot["plate"].upper(), {})
+                trip = {
+                    "day": slot["day"],
+                    "plate": slot["plate"],
+                    "description": _clean(truck.get("description")) or slot["plate"],
+                    "capacity": _num(truck.get("capacity")),
+                    "sequence": slot["sequence"],
+                    "branches": [],
+                    "slots": [],
+                }
+                trip_by_key[key] = trip
+                trips.append(trip)
+            if slot["branch"].upper() not in {b.upper() for b in trip["branches"]}:
+                trip["branches"].append(slot["branch"])
+                trip["slots"].append(slot)
+        trips.sort(key=lambda x: (DAYS.index(x["day"]), x["sequence"], x["plate"]))
+        for i, trip in enumerate(trips):
+            trip["trip_index"] = i
+            trip["day_trip_no"] = 1 + sum(1 for x in trips[:i] if x["day"] == trip["day"])
+
+        branch_trip_indices: Dict[str, List[int]] = defaultdict(list)
+        for i, trip in enumerate(trips):
+            for branch in trip["branches"]:
+                branch_trip_indices[branch.upper()].append(i)
+
+        # Enrich allocation lines once and maintain remaining quantity through the week.
+        states: List[Dict[str, Any]] = []
+        allocations_by_branch: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for i, a in enumerate(allocations):
+            branch = _clean(a.get("branch"))
+            model = _clean(a.get("model"))
+            qty = _num(a.get("quantity"))
+            if not branch or not model or qty <= 0:
+                continue
+            dash = dashboard_lookup.get((branch.upper(), model.upper()), {})
+            idx_known = model.upper() in model_index
+            idx = model_index.get(model.upper(), 1.0)
+            cls = _allocation_class(a.get("class")) or _clean(dash.get("class")) or "—"
+            stock_status = _clean(dash.get("stock_status")) or "—"
+            state = {
+                "allocation_index": i,
+                "branch": branch,
+                "area": branch_area.get(branch.upper()) or _clean(dash.get("area")),
+                "model": model,
+                "class": cls,
+                "stock_status": stock_status,
+                "index_size": idx,
+                "index_known": idx_known,
+                "original_quantity": qty,
+                "remaining_quantity": qty,
+                "user_remarks": _clean(a.get("remarks")),
+                "priority": _priority_label(cls, stock_status),
+                "scheduled_trip_indices": list(branch_trip_indices.get(branch.upper(), [])),
+                "planned_segments": [],
+            }
+            states.append(state)
+            allocations_by_branch[branch.upper()].append(state)
+
+        daily_assignments: Dict[str, List[Dict[str, Any]]] = {d: [] for d in DAYS}
+        daily_priorities: Dict[str, List[Dict[str, Any]]] = {d: [] for d in DAYS}
+
+        for ti, trip in enumerate(trips):
+            branches_upper = {b.upper() for b in trip["branches"]}
+            eligible = [s for s in states if s["branch"].upper() in branches_upper and s["remaining_quantity"] > 1e-9]
+            eligible.sort(key=lambda x: (
+                _class_rank(x.get("class")),
+                _status_rank(x.get("stock_status")),
+                -(_num(x.get("remaining_quantity")) * _num(x.get("index_size"), 1)),
+                x.get("allocation_index", 0),
+            ))
+
+            requested_load = sum(_num(x.get("remaining_quantity")) * _num(x.get("index_size"), 1) for x in eligible)
+            requested_units = sum(_num(x.get("remaining_quantity")) for x in eligible)
+            remaining_cap = _num(trip.get("capacity"))
+            planned_load = 0.0
+            planned_units_total = 0.0
+            priority_items: List[Dict[str, Any]] = []
             unknown_models = set()
 
-            for branch in scheduled_branches:
+            for state in eligible:
+                before = _num(state.get("remaining_quantity"))
+                idx = max(0.0001, _num(state.get("index_size"), 1.0))
+                fit_units = max(0, math.floor((remaining_cap + 1e-9) / idx))
+                planned = min(before, fit_units)
+                if planned > 0:
+                    used = planned * idx
+                    remaining_cap = max(0.0, remaining_cap - used)
+                    planned_load += used
+                    planned_units_total += planned
+                    state["remaining_quantity"] = max(0.0, before - planned)
+                remaining_after = _num(state.get("remaining_quantity"))
+                later = [x for x in state.get("scheduled_trip_indices", []) if x > ti]
+                next_trip = trips[later[0]] if later else None
+                carryover = remaining_after if remaining_after > 1e-9 and next_trip else 0.0
+                backorder = remaining_after if remaining_after > 1e-9 and not next_trip else 0.0
+                if carryover > 0:
+                    system_remarks = f"CARRYOVER TO {next_trip['day'].upper()} • {next_trip['plate']}"
+                    dispatch_status = "CARRYOVER"
+                elif backorder > 0:
+                    system_remarks = "BACKORDER • FOLLOWING WEEK / ROUTE ADJUSTMENT REQUIRED"
+                    dispatch_status = "BACKORDER"
+                else:
+                    system_remarks = "PLANNED THIS TRIP"
+                    dispatch_status = "PLANNED"
+                if not state.get("index_known"):
+                    unknown_models.add(state.get("model"))
+                combined_remarks = " • ".join(x for x in [state.get("user_remarks"), system_remarks] if x)
+                item = {
+                    "allocation_index": state.get("allocation_index"),
+                    "branch": state.get("branch"),
+                    "area": state.get("area"),
+                    "model": state.get("model"),
+                    "class": state.get("class"),
+                    "stock_status": state.get("stock_status"),
+                    "index_size": idx,
+                    "index_known": state.get("index_known"),
+                    "priority": state.get("priority"),
+                    "quantity": before,
+                    "original_quantity": state.get("original_quantity"),
+                    "planned_units": planned,
+                    "deferred_units": max(0.0, before - planned),
+                    "carryover_units": carryover,
+                    "backorder_units": backorder,
+                    "load_index": before * idx,
+                    "planned_load_index": planned * idx,
+                    "dispatch_status": dispatch_status,
+                    "next_trip_day": next_trip.get("day", "") if next_trip else "",
+                    "next_trip_plate": next_trip.get("plate", "") if next_trip else "",
+                    "system_remarks": system_remarks,
+                    "user_remarks": state.get("user_remarks", ""),
+                    "remarks": combined_remarks,
+                }
+                priority_items.append(item)
+                if planned > 0:
+                    state["planned_segments"].append({
+                        "day": trip["day"], "plate": trip["plate"], "quantity": planned,
+                        "load_index": planned * idx,
+                    })
+
+            branch_details: List[Dict[str, Any]] = []
+            for branch in trip["branches"]:
                 bkey = branch.upper()
-                raw_rows = allocations_by_branch.get(bkey, [])
-                b_qty = 0.0
-                b_load = 0.0
-                b_class_a = 0.0
-                b_risk = 0.0
-                b_items: List[Dict[str, Any]] = []
-                for a in raw_rows:
-                    model = _clean(a.get("model"))
-                    qty = _num(a.get("quantity"))
-                    dash = dashboard_lookup.get((bkey, model.upper()), {})
-                    idx_known = model.upper() in model_index
-                    idx = model_index.get(model.upper(), 1.0)
-                    cls = _clean(dash.get("class")) or "—"
-                    stock_status = _clean(dash.get("stock_status")) or "—"
-                    load_index = qty * idx
-                    if not idx_known:
-                        unknown_models.add(model)
-                    item = {
-                        "branch": branch,
-                        "area": branch_area.get(bkey) or _clean(dash.get("area")),
-                        "model": model,
-                        "quantity": qty,
-                        "remarks": _clean(a.get("remarks")),
-                        "class": cls,
-                        "stock_status": stock_status,
-                        "index_size": idx,
-                        "load_index": load_index,
-                        "index_known": idx_known,
-                        "priority": _priority_label(cls, stock_status),
-                    }
-                    b_items.append(item)
-                    all_items.append(item)
-                    b_qty += qty
-                    b_load += load_index
-                    if cls.upper() == "A":
-                        b_class_a += qty
-                    if _is_risk_status(stock_status):
-                        b_risk += qty
-                b_items.sort(key=lambda x: (_class_rank(x.get("class")), _status_rank(x.get("stock_status")), -x["load_index"], x["model"]))
-                branch_details.append({
+                original_states = allocations_by_branch.get(bkey, [])
+                items = [x for x in priority_items if _clean(x.get("branch")).upper() == bkey]
+                had_allocation = bool(original_states)
+                completed_earlier = bool(had_allocation and not items and all(_num(x.get("remaining_quantity")) <= 1e-9 for x in original_states))
+                quantity = sum(_num(x.get("quantity")) for x in items)
+                planned_qty = sum(_num(x.get("planned_units")) for x in items)
+                carryover_qty = sum(_num(x.get("carryover_units")) for x in items)
+                backorder_qty = sum(_num(x.get("backorder_units")) for x in items)
+                load_index = sum(_num(x.get("load_index")) for x in items)
+                class_a_qty = sum(_num(x.get("quantity")) for x in items if _clean(x.get("class")).upper() == "A")
+                planned_class_a_qty = sum(_num(x.get("planned_units")) for x in items if _clean(x.get("class")).upper() == "A")
+                risk_qty = sum(_num(x.get("quantity")) for x in items if _is_risk_status(x.get("stock_status")))
+                next_slots = [x for x in branch_trip_indices.get(bkey, []) if x > ti]
+                next_trip = trips[next_slots[0]] if next_slots else None
+                frequency = len(branch_trip_indices.get(bkey, []))
+                detail = {
+                    "day": trip["day"],
+                    "trip_no": trip["day_trip_no"],
+                    "plate": trip["plate"],
                     "branch": branch,
-                    "area": branch_area.get(bkey) or (b_items[0].get("area") if b_items else ""),
-                    "has_allocation": bool(raw_rows),
-                    "quantity": b_qty,
-                    "load_index": b_load,
-                    "class_a_qty": b_class_a,
-                    "risk_qty": b_risk,
-                    "items": b_items,
-                })
-                branch_priorities.append({
-                    "branch": branch,
-                    "plate": plate,
-                    "area": branch_details[-1]["area"],
-                    "has_allocation": bool(raw_rows),
-                    "quantity": b_qty,
-                    "load_index": b_load,
-                    "class_a_qty": b_class_a,
-                    "risk_qty": b_risk,
-                    "items": b_items,
-                })
+                    "area": branch_area.get(bkey) or (items[0].get("area") if items else ""),
+                    "frequency": frequency,
+                    "has_allocation": had_allocation,
+                    "has_trip_demand": bool(items),
+                    "completed_earlier": completed_earlier,
+                    "quantity": quantity,
+                    "planned_qty": planned_qty,
+                    "load_index": load_index,
+                    "class_a_qty": class_a_qty,
+                    "planned_class_a_qty": planned_class_a_qty,
+                    "risk_qty": risk_qty,
+                    "carryover_qty": carryover_qty,
+                    "backorder_qty": backorder_qty,
+                    "next_trip_day": next_trip.get("day", "") if next_trip else "",
+                    "next_trip_plate": next_trip.get("plate", "") if next_trip else "",
+                    "items": items,
+                }
+                branch_details.append(detail)
+                daily_priorities[trip["day"]].append(dict(detail))
 
-            all_items.sort(key=lambda x: (_class_rank(x.get("class")), _status_rank(x.get("stock_status")), -x["load_index"], x["branch"], x["model"]))
-            total_load = sum(x["load_index"] for x in all_items)
-            total_qty = sum(x["quantity"] for x in all_items)
-            util = (total_load / cap * 100.0) if cap else 0.0
-
-            if not scheduled_branches:
-                status = "IDLE"
-            elif total_load <= 0:
+            planned_util = (planned_load / _num(trip.get("capacity")) * 100.0) if _num(trip.get("capacity")) else 0.0
+            requested_util = (requested_load / _num(trip.get("capacity")) * 100.0) if _num(trip.get("capacity")) else 0.0
+            carryover_units = sum(_num(x.get("carryover_units")) for x in priority_items)
+            backorder_units = sum(_num(x.get("backorder_units")) for x in priority_items)
+            has_any_allocation = any(x.get("has_allocation") for x in branch_details)
+            has_trip_demand = bool(priority_items)
+            if not has_any_allocation:
                 status = "SCHEDULED / NO ALLOCATION"
-            elif util > 100.0001:
-                status = "OVERLOAD"
-            elif util >= full_pct:
+            elif not has_trip_demand:
+                status = "SCHEDULED / COMPLETED EARLIER"
+            elif requested_load > _num(trip.get("capacity")) + 1e-9:
+                status = "OVERLOAD / CARRYOVER" if carryover_units > 0 else "OVERLOAD / BACKORDER"
+            elif planned_util >= full_pct:
                 status = "FULL / HIGH UTILIZATION"
-            elif util >= under_pct:
+            elif planned_util >= under_pct:
                 status = "OPTIMIZED"
             else:
                 status = "UNDERUTILIZED"
 
-            # Capacity-aware loading recommendation. Class A always wins before B/C.
-            remaining_cap = cap
-            deferred_units = 0.0
-            planned_load = 0.0
-            priority_items: List[Dict[str, Any]] = []
-            for item in all_items:
-                idx = max(0.0001, _num(item.get("index_size"), 1.0))
-                requested = _num(item.get("quantity"))
-                fit_units = max(0, math.floor((remaining_cap + 1e-9) / idx))
-                planned = min(requested, fit_units)
-                deferred = max(0.0, requested - planned)
-                if planned > 0:
-                    used = planned * idx
-                    remaining_cap -= used
-                    planned_load += used
-                deferred_units += deferred
-                priority_items.append({**item, "planned_units": planned, "deferred_units": deferred})
-
-            assignments.append({
-                "plate": plate,
-                "description": _clean(truck.get("description")),
-                "capacity": cap,
-                "branches": scheduled_branches,
+            assignment = {
+                "day": trip["day"],
+                "trip_no": trip["day_trip_no"],
+                "plate": trip["plate"],
+                "description": trip["description"],
+                "capacity": trip["capacity"],
+                "branches": list(trip["branches"]),
                 "branch_details": branch_details,
                 "areas": sorted({x.get("area", "") for x in branch_details if x.get("area")}),
-                "load_index": total_load,
+                "load_index": requested_load,
                 "planned_load_index": planned_load,
-                "quantity": total_qty,
-                "utilization": util,
+                "quantity": requested_units,
+                "planned_units": planned_units_total,
+                "utilization": requested_util,
+                "planned_utilization": planned_util,
                 "status": status,
-                "class_a_qty": sum(x["quantity"] for x in all_items if _clean(x.get("class")).upper() == "A"),
-                "deferred_units": deferred_units,
+                "class_a_qty": sum(_num(x.get("quantity")) for x in priority_items if _clean(x.get("class")).upper() == "A"),
+                "planned_class_a_qty": sum(_num(x.get("planned_units")) for x in priority_items if _clean(x.get("class")).upper() == "A"),
+                "deferred_units": carryover_units + backorder_units,
+                "carryover_units": carryover_units,
+                "backorder_units": backorder_units,
                 "priority_items": priority_items,
                 "unknown_models": sorted(m for m in unknown_models if m),
                 "empty_scheduled_branches": [x["branch"] for x in branch_details if not x["has_allocation"]],
-            })
+                "completed_earlier_branches": [x["branch"] for x in branch_details if x.get("completed_earlier")],
+            }
+            daily_assignments[trip["day"]].append(assignment)
 
-        status_counts: Dict[str, int] = defaultdict(int)
-        for a in assignments:
-            status_counts[a["status"]] += 1
+        # Any remaining scheduled quantity has exhausted its final weekly slot: backorder.
+        backorder_rows: List[Dict[str, Any]] = []
+        unscheduled_rows: List[Dict[str, Any]] = []
+        for state in states:
+            remaining = _num(state.get("remaining_quantity"))
+            if not state.get("scheduled_trip_indices"):
+                unscheduled_rows.append({
+                    "branch": state.get("branch"), "model": state.get("model"), "class": state.get("class"),
+                    "quantity": state.get("original_quantity"), "remarks": state.get("user_remarks"),
+                    "required_action": "ADD TO WEEKLY SCHEDULE / ROUTE ADJUSTMENT",
+                })
+            elif remaining > 1e-9:
+                backorder_rows.append({
+                    "branch": state.get("branch"), "area": state.get("area"), "model": state.get("model"),
+                    "class": state.get("class"), "quantity": remaining,
+                    "remarks": "BACKORDER • FOLLOWING WEEK / ROUTE ADJUSTMENT REQUIRED",
+                })
 
-        scheduled_assignments = [a for a in assignments if a["branches"]]
-        scheduled_capacity = sum(a["capacity"] for a in scheduled_assignments)
-        total_load = sum(a["load_index"] for a in scheduled_assignments)
-        day_alloc_rows = sum(len(allocations_by_branch.get(b.upper(), [])) for b in [x.get("branch", "") for x in day_schedule])
-        branches_with_allocation = sum(1 for p in branch_priorities if p["has_allocation"])
-        branches_without_allocation = sum(1 for p in branch_priorities if not p["has_allocation"])
-        branch_priorities.sort(key=lambda x: (0 if x["has_allocation"] else 1, -x["class_a_qty"], -x["risk_qty"], -x["load_index"], x["branch"]))
-
-        # Imported branches not found in the schedule are not silently assigned elsewhere.
         unscheduled_by_branch: Dict[str, Dict[str, Any]] = {}
         for row in unscheduled_rows:
-            b = _clean(row.get("branch"))
-            g = unscheduled_by_branch.setdefault(b.upper(), {"branch": b, "quantity": 0.0, "rows": 0})
+            key = _clean(row.get("branch")).upper()
+            g = unscheduled_by_branch.setdefault(key, {"branch": row.get("branch"), "quantity": 0.0, "rows": 0})
+            g["quantity"] += _num(row.get("quantity"))
+            g["rows"] += 1
+        backorder_by_branch: Dict[str, Dict[str, Any]] = {}
+        for row in backorder_rows:
+            key = _clean(row.get("branch")).upper()
+            g = backorder_by_branch.setdefault(key, {"branch": row.get("branch"), "area": row.get("area"), "quantity": 0.0, "rows": 0})
             g["quantity"] += _num(row.get("quantity"))
             g["rows"] += 1
 
-        return {
-            "day": day,
-            "scheduled_branches": [x.get("branch", "") for x in day_schedule],
-            "scheduled_count": len(day_schedule),
-            "scheduled_trucks": len(scheduled_assignments),
-            "allocation_rows": len(allocations),
-            "scoped_allocation_rows": day_alloc_rows,
-            "unscheduled_allocation_rows": len(unscheduled_rows),
-            "summary": {
-                "total_load_index": total_load,
-                "total_capacity": scheduled_capacity,
-                "fleet_utilization": (total_load / scheduled_capacity * 100.0) if scheduled_capacity else 0.0,
-                "scheduled_branches": len(day_schedule),
-                "branches_with_allocation": branches_with_allocation,
-                "branches_without_allocation": branches_without_allocation,
-                "class_a_units": sum(a["class_a_qty"] for a in scheduled_assignments),
-                "overloaded_trucks": status_counts.get("OVERLOAD", 0),
+        total_allocation_units = sum(_num(x.get("original_quantity")) for x in states)
+        planned_week_units = sum(sum(_num(i.get("planned_units")) for i in a.get("priority_items", [])) for day in DAYS for a in daily_assignments[day])
+        planned_week_load = sum(sum(_num(i.get("planned_load_index")) for i in a.get("priority_items", [])) for day in DAYS for a in daily_assignments[day])
+        total_week_capacity = sum(_num(a.get("capacity")) for day in DAYS for a in daily_assignments[day])
+        backorder_units_total = sum(_num(x.get("quantity")) for x in backorder_rows)
+        unscheduled_units_total = sum(_num(x.get("quantity")) for x in unscheduled_rows)
+
+        daily_results: Dict[str, Dict[str, Any]] = {}
+        daily_summaries: List[Dict[str, Any]] = []
+        for day in DAYS:
+            assigns = daily_assignments[day]
+            priorities = daily_priorities[day]
+            status_counts: Dict[str, int] = defaultdict(int)
+            for a in assigns:
+                status_counts[a.get("status", "")] += 1
+            day_slots = [x for x in slots if x["day"] == day]
+            day_capacity = sum(_num(a.get("capacity")) for a in assigns)
+            day_requested_load = sum(_num(a.get("load_index")) for a in assigns)
+            day_planned_load = sum(_num(a.get("planned_load_index")) for a in assigns)
+            day_planned_units = sum(_num(a.get("planned_units")) for a in assigns)
+            day_carryover = sum(_num(a.get("carryover_units")) for a in assigns)
+            day_backorder = sum(_num(a.get("backorder_units")) for a in assigns)
+            priorities.sort(key=lambda x: (
+                0 if x.get("has_trip_demand") else 1,
+                -_num(x.get("class_a_qty")), -_num(x.get("risk_qty")), -_num(x.get("load_index")),
+                _clean(x.get("branch")),
+            ))
+            summary = {
+                "total_load_index": day_requested_load,
+                "planned_load_index": day_planned_load,
+                "total_capacity": day_capacity,
+                "fleet_utilization": (day_requested_load / day_capacity * 100.0) if day_capacity else 0.0,
+                "planned_utilization": (day_planned_load / day_capacity * 100.0) if day_capacity else 0.0,
+                "scheduled_branches": len(day_slots),
+                "branches_with_allocation": sum(1 for x in priorities if x.get("has_allocation")),
+                "branches_without_allocation": sum(1 for x in priorities if not x.get("has_allocation")),
+                "class_a_units": sum(_num(a.get("class_a_qty")) for a in assigns),
+                "allocation_units": sum(_num(a.get("quantity")) for a in assigns),
+                "requested_units": sum(_num(a.get("quantity")) for a in assigns),
+                "planned_units": day_planned_units,
+                "carryover_units": day_carryover,
+                "backorder_units": day_backorder,
+                "overloaded_trucks": sum(1 for a in assigns if "OVERLOAD" in _clean(a.get("status")).upper()),
                 "underutilized_trucks": status_counts.get("UNDERUTILIZED", 0),
-                "idle_trucks": status_counts.get("IDLE", 0),
-            },
-            "assignments": sorted(assignments, key=lambda x: (0 if x["branches"] else 1, x["plate"])),
-            "branch_priorities": branch_priorities,
+                "idle_trucks": 0,
+            }
+            result = {
+                "day": day,
+                "scheduled_branches": [x.get("branch", "") for x in day_slots],
+                "scheduled_count": len(day_slots),
+                "scheduled_trucks": len(assigns),
+                "allocation_rows": len(allocations),
+                "scoped_allocation_rows": sum(len(allocations_by_branch.get(x.get("branch", "").upper(), [])) for x in day_slots),
+                "unscheduled_allocation_rows": len(unscheduled_rows),
+                "summary": summary,
+                "assignments": assigns,
+                "branch_priorities": priorities,
+                "unassigned": sorted(unscheduled_by_branch.values(), key=lambda x: (-x["quantity"], x["branch"])),
+                "backorders": sorted(backorder_by_branch.values(), key=lambda x: (-x["quantity"], x["branch"])),
+                "thresholds": {"underutilized_pct": under_pct, "full_pct": full_pct, "max_branches_per_truck": max_branches},
+            }
+            daily_results[day] = result
+            daily_summaries.append({
+                "day": day,
+                "trips": len(assigns),
+                "branch_slots": len(day_slots),
+                "planned_units": day_planned_units,
+                "planned_load_index": day_planned_load,
+                "capacity": day_capacity,
+                "utilization": summary["planned_utilization"],
+                "carryover_units": day_carryover,
+                "backorder_units": day_backorder,
+                "overloaded_trucks": summary["overloaded_trucks"],
+            })
+
+        weekly_assignments = [dict(a) for d in DAYS for a in daily_assignments[d]]
+        weekly_priorities = [dict(p) for d in DAYS for p in daily_priorities[d]]
+        weekly_summary = {
+            "total_load_index": sum(_num(a.get("load_index")) for a in weekly_assignments),
+            "planned_load_index": planned_week_load,
+            "total_capacity": total_week_capacity,
+            "fleet_utilization": (planned_week_load / total_week_capacity * 100.0) if total_week_capacity else 0.0,
+            "planned_utilization": (planned_week_load / total_week_capacity * 100.0) if total_week_capacity else 0.0,
+            "scheduled_branches": len(slots),
+            "branches_with_allocation": sum(1 for p in weekly_priorities if p.get("has_allocation")),
+            "branches_without_allocation": sum(1 for p in weekly_priorities if not p.get("has_allocation")),
+            "class_a_units": sum(_num(a.get("planned_class_a_qty")) for a in weekly_assignments),
+            "allocation_units": total_allocation_units,
+            "planned_units": planned_week_units,
+            "carryover_units": sum(_num(a.get("carryover_units")) for a in weekly_assignments),
+            "backorder_units": backorder_units_total,
+            "unscheduled_units": unscheduled_units_total,
+            "overloaded_trucks": sum(1 for a in weekly_assignments if "OVERLOAD" in _clean(a.get("status")).upper()),
+            "underutilized_trucks": sum(1 for a in weekly_assignments if a.get("status") == "UNDERUTILIZED"),
+            "idle_trucks": 0,
+        }
+        weekly = {
+            "day": "Whole Week",
+            "scheduled_branches": [x.get("branch", "") for x in slots],
+            "scheduled_count": len(slots),
+            "scheduled_trucks": len(weekly_assignments),
+            "allocation_rows": len(allocations),
+            "scoped_allocation_rows": sum(1 for s in states if s.get("scheduled_trip_indices")),
+            "unscheduled_allocation_rows": len(unscheduled_rows),
+            "summary": weekly_summary,
+            "assignments": weekly_assignments,
+            "branch_priorities": weekly_priorities,
             "unassigned": sorted(unscheduled_by_branch.values(), key=lambda x: (-x["quantity"], x["branch"])),
+            "backorders": sorted(backorder_by_branch.values(), key=lambda x: (-x["quantity"], x["branch"])),
+            "daily_summaries": daily_summaries,
             "thresholds": {"underutilized_pct": under_pct, "full_pct": full_pct, "max_branches_per_truck": max_branches},
         }
+        return {"daily": daily_results, "weekly": weekly}
+
+    def analyze_week(self, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+        return self._build_week_plan(dashboard_records)["weekly"]
+
+    def analyze(self, day: str, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+        if day not in DAYS:
+            day = DAYS[0]
+        return self._build_week_plan(dashboard_records)["daily"][day]
 

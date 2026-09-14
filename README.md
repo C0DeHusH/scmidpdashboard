@@ -1,13 +1,35 @@
 # SCM Inventory & Distribution Planning Dashboard
 
-## Release: v2.24
+## Release: v2.28
 
 
 
-### v2.24 Delivery Week View, Batch Entry Reset & Export Sheets
+### v2.28 Weekly Truck Schedule Save Behavior
+- **Save Schedule** persists the current Weekly Truck Schedule and then clears only the **New Trip Assignment** entry fields (Day, Truck, Area, Branch).
+- Saved schedule rows remain visible and active after saving or importing.
+- The persisted Weekly Truck Schedule is cleared only by **Clear Board**.
+- The separate **Clear Schedule** control was removed to prevent accidental deletion of the saved delivery rhythm.
+- **Clear Allocations** remains available and does not affect the saved Weekly Truck Schedule.
+
+### v2.26 Delivery Control Board — Frequency-Aware Whole-Week Auto-Rollover
+
+- Delivery planning is now explicitly **Monday through Saturday**, with **Whole Week** as the default operational view.
+- Weekly Truck Schedule accepts repeated Branch delivery slots. A Branch may be scheduled once, twice, or more during the week; the board displays its **weekly delivery frequency**.
+- A Day + Truck route is treated as one capacity pool shared by its scheduled Branch stops. Multi-stop routes from the supplied schedule are supported (default maximum 6 route stops, configurable up to 12).
+- Allocation is consumed only once across the week. Loading priority remains **Class A → Class B → Class C**, with stock-risk status used inside each Class.
+- If a trip exceeds capacity and that Branch has another saved delivery slot later in the week, residual quantity is **automatically carried forward to the next scheduled trip**.
+- If no later Branch trip is available, remaining quantity is marked **BACKORDER • FOLLOWING WEEK / ROUTE ADJUSTMENT REQUIRED** and is shown in the board and Excel remarks/action fields.
+- Whole Week view now includes a six-day ribbon for Monday-Saturday with trips, planned units, planned utilization, carryover and backorder.
+- Truck cards show requested vs planned units, planned utilization, carryover, backorder and per-Branch frequency.
+- Branch Loading Priority shows Delivery Day, trip number, Truck, Area, weekly frequency, requested/planned units, carryover, backorder and next-trip routing.
+- **Clear Board** clears all operational Delivery Control Board data: saved Weekly Truck Schedule, saved/imported allocation batches, entry fields and derived analysis. Truck/Model/Branch masterlists remain reference configuration.
+- The supplied Weekly Truck Schedule and Unit Allocation samples are bundled in `examples/` for testing.
+
+
+### v2.25 Delivery Week View, Batch Entry Reset & Export Sheets
 
 - **Analyze Day** now includes **Whole Week**. Whole Week aggregates all scheduled delivery days and shows every Branch Loading Priority record with its scheduled delivery day.
-- **Export Delivery Plan** now creates separate **Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday** worksheets plus **Weekly Schedule**. Each daily sheet clearly displays its Delivery Day.
+- **Export Delivery Plan** now creates separate **Monday, Tuesday, Wednesday, Thursday, Friday, Saturday** worksheets plus **Weekly Schedule**. Each daily sheet clearly displays its Delivery Day.
 - All generated Excel exports are intentionally **unfrozen**; no frozen panes are applied.
 - After **Save Schedule**, the New Trip Assignment entry controls are cleared for the next schedule batch while saved trips remain visible.
 - After **Save** in Imported Allocation + Scheduled Dispatch, saved allocations remain persisted for analysis while the entry grid clears for the next allocation batch; subsequent batches are appended to the saved baseline.
@@ -424,12 +446,13 @@ Monday | MAD 2439 | HONDA KORONADAL
 
 A Truck may carry up to the configured maximum branches per day (default: 2).
 
-Imported allocation data still requires only:
+Imported allocation data uses the approved template:
 
 ```text
 Model
 Branch
 Quantity
+CLASS
 Remarks
 ```
 
@@ -664,7 +687,7 @@ The Status Distribution Graph is **record-count based**, not unit-quantity based
 Admin now has three protected clear actions in **DELIVERY CONTROL BOARD → Scheduled Truck Delivery Plan**:
 
 - **Clear Board** — clears the saved Weekly Truck Schedule and all imported/manual allocation rows.
-- **Clear Schedule** — clears only the Weekly Truck Schedule.
+- Weekly Truck Schedule is retained after Save Schedule and is removed only by **Clear Board**.
 - **Clear Allocations** — clears only imported/manual allocation rows.
 
 Every clear action requires confirmation, saves the cleared state immediately, refreshes Daily Truck Analysis / Scheduled Dispatch / Branch Loading Priority, and **never clears Truck, Model or Branch masterlists**.
@@ -677,3 +700,19 @@ Every clear action requires confirmation, saves the cleared state immediately, r
 - Branch choices come from active Delivery Branch master records and show the Area in the option label.
 - Changing Branch immediately recalculates the mapped Day, Truck and SCHEDULED / UNSCHEDULED status on the same allocation line.
 - The existing responsive card layout is retained so Day, Truck and schedule status remain visible without horizontal page scrolling.
+
+
+## v2.25 — Unit Allocation CLASS Input
+- The approved Unit Allocation import template is now: **Model | Branch | Quantity | CLASS | Remarks**.
+- The bundled `/delivery/template` download uses the newly supplied `Unit_Allocation_Template.xlsx`.
+- Delivery allocation rows persist `class` as A/B/C. Imported CLASS takes priority for delivery loading priority; if blank/invalid, the system falls back to the Dashboard Branch+Model Class when available.
+- Imported Allocation + Scheduled Dispatch includes an Admin Class dropdown (A/B/C) and shows Class in guest/read-only mode.
+- Class A/B/C priority analysis and Delivery Plan export now use the allocation CLASS value when supplied.
+- Older allocation files without CLASS remain importable for backward compatibility and receive a warning/fallback behavior.
+
+
+## v2.28 — Overload Allocation Correction
+- Overloaded/carryover/backorder allocation lines now expose Admin controls: Adjust Qty, Edit Allocation, Delete.
+- Quantity adjustment and delete actions persist immediately and recalculate the Delivery Plan.
+- Saved allocation batches can be reopened for full Model/Branch/Quantity/Class/Remarks correction, then Save & Recalculate.
+- Existing save-and-clear batch behavior is preserved.

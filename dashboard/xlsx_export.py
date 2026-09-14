@@ -173,7 +173,7 @@ def _col_letter(n: int) -> str:
 
 def _status_style(status: str, base: int = 8) -> int:
     s = str(status or "").upper()
-    if s == "OVERLOAD":
+    if "OVERLOAD" in s or "BACKORDER" in s:
         return 10
     if "FULL" in s or "HIGH" in s:
         return 11
@@ -314,7 +314,18 @@ def _build_delivery_plan_xlsx_legacy(
     rows1.append(_row(r, [_cell(f"{_col_letter(i+1)}{r}", h, 7) for i, h in enumerate(branch_headers)], 25)); r += 1
     for idx, b in enumerate(branch_priorities, 1):
         base = 8 if idx % 2 else 9
-        action = "Load Class A first" if _num_local(b.get("class_a_qty")) > 0 else ("Scheduled / No Allocation" if not b.get("has_allocation") else "Load as planned")
+        if _num_local(b.get("backorder_qty")) > 0:
+            action = f"Backorder {_whole(b.get('backorder_qty', 0))} • following week / adjust route"
+        elif _num_local(b.get("carryover_qty")) > 0:
+            action = f"Carryover {_whole(b.get('carryover_qty', 0))} to {b.get('next_trip_day','')} / {b.get('next_trip_plate','')}"
+        elif b.get("completed_earlier"):
+            action = "Allocation completed on earlier trip"
+        elif not b.get("has_allocation"):
+            action = "Scheduled / No Allocation"
+        elif _num_local(b.get("class_a_qty")) > 0:
+            action = "Load Class A first"
+        else:
+            action = "Load as planned"
         vals = [idx, b.get("plate", ""), b.get("branch", ""), b.get("area", ""), "ALLOCATED" if b.get("has_allocation") else "NO ALLOCATION", _whole(b.get("quantity", 0)), _whole(b.get("class_a_qty", 0)), _whole(b.get("risk_qty", 0)), _whole(b.get("load_index", 0)), action]
         cells=[]
         for c,v in enumerate(vals,1):
@@ -372,7 +383,7 @@ def _build_delivery_plan_xlsx_legacy(
     wh = ["DAY", "TRUCK", "BRANCH", "AREA", "ALLOCATION", "UNITS", "CLASS A", "RISK UNITS", "REQ. INDEX", "TRUCK UTIL.", "TRUCK STATUS", "ACTION"]
     rows2.append(_row(6, [_cell(f"{_col_letter(i+1)}6", h, 7) for i,h in enumerate(wh)], 25))
     rr=7
-    for dname in ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]:
+    for dname in ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]:
         da = weekly_analysis.get(dname, {}) or {}
         pr_map={(str(x.get("plate","")).upper(),str(x.get("branch","")).upper()):x for x in da.get("branch_priorities",[]) or []}
         tr_map={str(x.get("plate","")).upper():x for x in da.get("assignments",[]) or []}
@@ -380,8 +391,15 @@ def _build_delivery_plan_xlsx_legacy(
         for slot in day_rows:
             plate=str(slot.get("plate", "")); branch=str(slot.get("branch", "")); p=pr_map.get((plate.upper(),branch.upper()),{}); t=tr_map.get(plate.upper(),{})
             has=bool(p.get("has_allocation")); status=t.get("status", "")
-            action="Priority Class A loading" if _num_local(p.get("class_a_qty"))>0 else ("Scheduled / No Allocation" if not has else "Load as planned")
-            vals=[dname,plate,branch,p.get("area", ""),"ALLOCATED" if has else "NO ALLOCATION",_whole(p.get("quantity",0)),_whole(p.get("class_a_qty",0)),_whole(p.get("risk_qty",0)),_whole(p.get("load_index",0)),f"{_whole(t.get('utilization',0))}%",status,action]
+            if _num_local(p.get("backorder_qty"))>0:
+                action=f"Backorder {_whole(p.get('backorder_qty',0))} • following week"
+            elif _num_local(p.get("carryover_qty"))>0:
+                action=f"Carryover {_whole(p.get('carryover_qty',0))} to {p.get('next_trip_day','')} / {p.get('next_trip_plate','')}"
+            elif p.get("completed_earlier"):
+                action="Completed on earlier trip"
+            else:
+                action="Priority Class A loading" if _num_local(p.get("class_a_qty"))>0 else ("Scheduled / No Allocation" if not has else "Load as planned")
+            vals=[dname,plate,branch,p.get("area", ""),"ALLOCATED" if has else "NO ALLOCATION",_whole(p.get("planned_qty",p.get("quantity",0))),_whole(p.get("planned_class_a_qty",p.get("class_a_qty",0))),_whole(p.get("risk_qty",0)),_whole(p.get("load_index",0)),f"{_whole(t.get('planned_utilization',t.get('utilization',0)))}%",status,action]
             base=8 if rr%2 else 9
             cells=[]
             for c,v in enumerate(vals,1):
@@ -519,11 +537,11 @@ def build_delivery_plan_xlsx(
 ) -> bytes:
     """Build a whole-week Delivery Plan workbook with one day per worksheet.
 
-    Each Monday-Sunday worksheet is the complete operational daily plan for that day,
+    Each Monday-Saturday worksheet is the complete operational daily plan for that day,
     followed by a Weekly Schedule worksheet. All sheets are Letter landscape, fit one
     page wide, and intentionally have no frozen panes.
     """
-    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     daily_xml: Dict[str, str] = {}
     styles_xml = core_xml = app_xml = weekly_xml = ""
 
@@ -866,7 +884,7 @@ def build_weekly_schedule_template_xlsx(
         for b in (master.get("branches", []) or [])
         if str(b.get("branch", "")).strip()
     }
-    valid_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    valid_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     day_rank = {d: i for i, d in enumerate(valid_days)}
     ordered = sorted(
         [dict(x) for x in (schedule or [])],
