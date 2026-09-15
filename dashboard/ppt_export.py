@@ -242,7 +242,7 @@ def _branch_rows(all_branches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def _add_kpi_summary_slide(prs, blank, data: Dict[str, Any]):
     slide = prs.slides.add_slide(blank); _set_bg(slide)
-    _title(slide, "EXECUTIVE KPI SUMMARY", "Latest YTD and Weekly results across the five core Supply Chain KPIs.")
+    _title(slide, "EXECUTIVE KPI SUMMARY", "Latest YTD and Weekly results across the six core Supply Chain KPIs.")
     cols = ["KPI", "YTD", "YTD Δ", "Weekly", "Weekly Δ", "Direction"]
     widths = [4.45, 1.25, 1.25, 1.25, 1.25, 1.50]
     _table_header(slide, 0.72, 1.35, cols, widths, 0.33)
@@ -525,7 +525,7 @@ def build_presentation(data: Dict[str, Any], area_data: Dict[str, Any], branch_d
     _add_kpi_summary_slide(prs, blank, data)
     _add_reorder_model_position_slides(prs, blank, data.get("reorder_card", {}), reorder_brand)
 
-    # YTD / Weekly trend slides — all five KPIs captured.
+    # YTD / Weekly trend slides — all six KPIs captured.
     for period_key, period_title in [("ytd", "YTD KPI TRENDS"), ("weekly", "WEEKLY KPI TRENDS")]:
         kpi_items = list(data.get("kpis", {}).items())
         for page in range(math.ceil(len(kpi_items)/3) or 1):

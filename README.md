@@ -1,6 +1,6 @@
 # SCM Inventory & Distribution Planning Dashboard
 
-## Release: v2.35
+## Release: v2.36
 
 ### v2.35 Protected Saved Weekly Delivery Plan
 - **Clear Board** clears only the current working/on-screen Weekly Truck Schedule and Allocation view.
@@ -10,6 +10,14 @@
 - **Clear Allocations** remains a separate, explicitly destructive saved-data action.
 
 
+
+
+### v2.36 Missing KPI Line Graph Restored
+- Added **MUTI MC : Stock Outrate - Overall (Before PO Balance)** as the sixth Executive KPI.
+- Reads YTD and Weekly values directly from the matching KPI blocks in `KPI_YTD_Input` and `KPI_WEEKLY_Input`.
+- Uses **lower-is-better** direction logic, consistent with the other stock-out rate KPIs.
+- Included automatically in Executive Dashboard KPI cards/line graphs and presentation export.
+- Bundled dashboard import workbook updated from the user-provided `MC Dashbord IMPORT(3).xlsx` reference.
 
 ### v2.34 DoI Round-Up + ABC Export + Class A DoI Direction
 - All Days of Inventory (DoI) displays and calculated New DoI values now follow the approved **round-up / ceiling rule** (example: 6.01 → 7 days).

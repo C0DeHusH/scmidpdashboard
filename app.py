@@ -13,7 +13,7 @@ import time
 import webbrowser
 
 from dashboard.metrics import DashboardStore
-from dashboard.xlsx_export import build_branch_request_xlsx, build_delivery_plan_xlsx, build_management_order_xlsx, build_weekly_schedule_template_xlsx
+from dashboard.xlsx_export import build_branch_request_xlsx, build_delivery_plan_xlsx, build_management_order_xlsx
 from dashboard.ppt_export import build_presentation
 from dashboard.delivery import DeliveryStore, DAYS
 
@@ -318,7 +318,8 @@ def admin_export_pptx():
     # All-Area Performance, Branch rankings and per-Branch A/B/C model details.
     data = store.bootstrap(role())
     all_branch_dashboards = [store.branch_dashboard(branch) for branch in store.branches]
-    ppt = build_presentation(data, store.area_dashboard("Overall"), store.branch_dashboard(None), all_branch_dashboards)
+    reorder_brand = request.args.get("reorder_brand", "All Brands")
+    ppt = build_presentation(data, store.area_dashboard("Overall"), store.branch_dashboard(None), all_branch_dashboards, reorder_brand=reorder_brand)
     stamp = datetime.now().strftime("%Y%m%d_%H%M")
     return send_file(BytesIO(ppt), mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation", as_attachment=True, download_name=f"SCM_IDP_Executive_Control_Tower_{stamp}.pptx")
 
@@ -401,19 +402,6 @@ def admin_delivery_schedule_import():
     return jsonify({"ok": True, "rows": len(schedule), "warnings": warnings[:30], "message": f"Imported and saved {len(schedule)} Weekly Truck Schedule row(s)."})
 
 
-@app.get("/admin/export/delivery-schedule-template")
-@admin_required
-def admin_export_delivery_schedule_template():
-    xlsx = build_weekly_schedule_template_xlsx(delivery_store.schedule, delivery_store.master)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    return send_file(
-        BytesIO(xlsx),
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        as_attachment=True,
-        download_name=f"Weekly_Truck_Schedule_Template_{stamp}.xlsx",
-    )
-
-
 @app.post("/admin/delivery/schedule")
 @admin_required
 def admin_delivery_schedule():
@@ -423,6 +411,24 @@ def admin_delivery_schedule():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify({"ok": True, "schedule": schedule})
+
+
+@app.post("/admin/delivery/plan")
+@admin_required
+def admin_delivery_plan_save():
+    """Persist the current weekly truck schedule and allocation plan together."""
+    payload = request.get_json(force=True, silent=True) or {}
+    try:
+        schedule = delivery_store.update_schedule(payload.get("schedule") or [])
+        allocations = delivery_store.replace_allocations(payload.get("allocations") or [])
+    except Exception as exc:
+        return jsonify({"error": f"Unable to save Delivery Plan: {exc}"}), 400
+    return jsonify({
+        "ok": True,
+        "schedule": schedule,
+        "allocations": allocations,
+        "message": f"Delivery Plan saved: {len(schedule)} schedule trip(s) and {len(allocations)} allocation row(s).",
+    })
 
 
 @app.post("/admin/delivery/allocations")
@@ -449,6 +455,24 @@ def admin_delivery_allocation_update(index: int):
     return jsonify({"ok": True, "allocations": allocations, "message": "Allocation updated. Delivery capacity has been recalculated."})
 
 
+@app.post("/admin/delivery/allocation/<int:index>/transfer")
+@admin_required
+def admin_delivery_allocation_transfer(index: int):
+    payload = request.get_json(force=True, silent=True) or {}
+    try:
+        allocations = delivery_store.transfer_allocation(
+            index,
+            payload.get("target_day"),
+            payload.get("target_plate"),
+            payload.get("quantity"),
+        )
+    except (ValueError, IndexError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Unable to transfer allocation: {exc}"}), 400
+    return jsonify({"ok": True, "allocations": allocations, "message": "Allocation transferred. Delivery capacity has been rebalanced."})
+
+
 @app.delete("/admin/delivery/allocation/<int:index>")
 @admin_required
 def admin_delivery_allocation_delete(index: int):
@@ -464,22 +488,35 @@ def admin_delivery_allocation_delete(index: int):
 @app.post("/admin/delivery/clear")
 @admin_required
 def admin_delivery_clear():
+    """Clear transient delivery editing data without deleting a saved weekly plan.
+
+    v2.35 deliberately treats the top-level Clear Board action as a UI reset only.
+    Persisted Weekly Truck Schedule + Allocation rows are the saved weekly recovery point
+    and must survive Clear Board. The explicit allocation-only action remains available
+    for users who intentionally want to delete saved allocation rows.
+    """
     payload = request.get_json(force=True, silent=True) or {}
     target = str(payload.get("target", "all")).strip().lower()
     if target not in {"all", "allocations"}:
-        return jsonify({"error": "Weekly Truck Schedule is retained until Clear Board. Clear target must be all or allocations."}), 400
+        return jsonify({"error": "Clear target must be all or allocations."}), 400
+    if target == "all":
+        return jsonify({
+            "ok": True,
+            "target": "all",
+            "preserved": True,
+            "saved_schedule_rows": len(delivery_store.schedule),
+            "saved_allocation_rows": len(delivery_store.allocations),
+            "message": "Working Delivery Board cleared. The saved Weekly Truck Schedule and saved Allocation for the week were preserved and can be opened again.",
+        })
     try:
-        if target == "all":
-            delivery_store.update_schedule([])
-        if target in {"all", "allocations"}:
-            delivery_store.replace_allocations([])
+        delivery_store.replace_allocations([])
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
-    messages = {
-        "all": "Delivery Control Board cleared. All schedules, allocation batches, dispatch analysis and pending delivery-board data are now empty; masterlists were preserved.",
-        "allocations": "All delivery allocation rows cleared. Weekly Truck Schedule and masterlists were preserved.",
-    }
-    return jsonify({"ok": True, "target": target, "message": messages[target]})
+    return jsonify({
+        "ok": True,
+        "target": "allocations",
+        "message": "All saved delivery allocation rows cleared. Weekly Truck Schedule and masterlists were preserved.",
+    })
 
 
 @app.get("/admin/export/delivery")

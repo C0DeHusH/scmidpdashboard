@@ -16,6 +16,7 @@ TARGET_KPIS = [
     "Overall Class A Stock Out Rate",
     "MUTI MC : Stock Outrate - Per Branch",
     "MUTI MC : Stock Outrate - Overall after PO Balance",
+    "MUTI MC : Stock Outrate - Overall (Before PO Balance)",
 ]
 
 KPI_META = {
@@ -24,6 +25,7 @@ KPI_META = {
     "Overall Class A Stock Out Rate": {"unit": "percent", "label": "Overall Class A Stock-Out", "good": "low"},
     "MUTI MC : Stock Outrate - Per Branch": {"unit": "percent", "label": "Stock-Out Rate · Per Branch", "good": "low"},
     "MUTI MC : Stock Outrate - Overall after PO Balance": {"unit": "percent", "label": "Stock-Out · After PO Balance", "good": "low"},
+    "MUTI MC : Stock Outrate - Overall (Before PO Balance)": {"unit": "percent", "label": "Stock-Out · Before PO Balance", "good": "low"},
 }
 
 
