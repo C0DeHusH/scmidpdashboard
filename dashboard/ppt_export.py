@@ -6,6 +6,7 @@ import math
 import tempfile
 from pathlib import Path
 from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime
 
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -25,6 +26,13 @@ RED = RGBColor(248, 113, 113)
 GREEN = RGBColor(74, 222, 128)
 TEAL = RGBColor(20, 184, 166)
 LOGO_PATH = Path(__file__).resolve().parents[1] / "static" / "brilliant4_logo.png"
+COVER_TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "static" / "ppt_cover_template_clean.png"
+KPI_TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "static" / "ppt_kpi_template.png"
+NAVY = RGBColor(2, 20, 38)
+NAVY_PANEL = RGBColor(3, 29, 49)
+BLUE_LINE = RGBColor(18, 130, 193)
+CYAN = RGBColor(68, 200, 255)
+AQUA = RGBColor(32, 240, 205)
 
 
 def _whole(value):
@@ -60,6 +68,238 @@ def _delta_favorable(delta, good):
 def _set_bg(slide, color=DARK):
     fill = slide.background.fill
     fill.solid(); fill.fore_color.rgb = color
+
+def _add_full_bleed_picture(slide, path: Path):
+    if path.exists():
+        try:
+            slide.shapes.add_picture(str(path), 0, 0, width=Inches(13.333), height=Inches(7.5))
+            return True
+        except Exception:
+            return False
+    return False
+
+
+def _source_date(data: Dict[str, Any]) -> str:
+    dates = []
+    for kpi in (data or {}).get("kpis", {}).values():
+        labels = (kpi.get("ytd") or {}).get("labels", []) or []
+        for raw in labels[-2:]:
+            try:
+                dates.append(datetime.strptime(str(raw), "%b %d, %Y"))
+            except Exception:
+                pass
+    dt = max(dates) if dates else datetime.now()
+    return dt.strftime("%B %d, %Y").replace(" 0", " ")
+
+
+def _kpi_heading(label: str):
+    u = (label or "").upper()
+    if "BEFORE PO" in u:
+        return "STOCK-OUT", "• BEFORE PO BALANCE", "VISIBILITY  •  CONTROL  •  SUPPLY RISK  •  A STRONGER TOMORROW"
+    if "AFTER PO" in u:
+        return "STOCK-OUT", "• AFTER PO BALANCE", "FULFILMENT  •  CONTROL  •  SUPPLY RECOVERY  •  A STRONGER TOMORROW"
+    if "PER BRANCH" in u:
+        return "STOCK-OUT", "• PER BRANCH", "BRANCH VISIBILITY  •  PRIORITY  •  SERVICE LEVEL  •  GROWTH"
+    if "CLASS A" in u and "DOI" in u:
+        return "CLASS A DOI", "• AVAILABILITY", "PRIORITY MODELS  •  COVERAGE  •  REPLENISHMENT  •  GROWTH"
+    if "CLASS A" in u and "STOCK" in u:
+        return "CLASS A STOCK-OUT", "• NETWORK PRIORITY", "CLASS A VISIBILITY  •  CONTROL  •  REPLENISHMENT  •  GROWTH"
+    if "DOI" in u:
+        return "DAYS OF INVENTORY", "• NETWORK COVERAGE", "AVAILABILITY  •  BALANCE  •  INVENTORY HEALTH  •  GROWTH"
+    return label.upper(), "", "VISIBILITY  •  CONTROL  •  SUPPLY  •  GROWTH"
+
+
+def _kpi_actions(label: str):
+    u = (label or "").upper()
+    if "STOCK" in u:
+        return [
+            ("01", "REDUCE STOCK-OUTS", "Protect demand before PO arrival"),
+            ("02", "STRENGTHEN PLANNING", "Escalate supply and back-order actions"),
+            ("03", "DRIVE CONVERSION", "Use Class B & C alternatives when needed"),
+            ("04", "ENABLE GROWTH", "Support sales with supply visibility"),
+        ]
+    return [
+        ("01", "PROTECT AVAILABILITY", "Sustain healthy days of inventory"),
+        ("02", "REBALANCE STOCK", "Move units to priority branches and models"),
+        ("03", "FOCUS CLASS A", "Prioritize high-rank, low-DoI models"),
+        ("04", "ENABLE GROWTH", "Support sales with inventory visibility"),
+    ]
+
+
+def _kpi_chart_png(labels: List[str], values: List[float], trend: List[float], percent=False, period="ytd", good="low") -> str:
+    fig, ax = plt.subplots(figsize=(10.4, 3.25), dpi=175)
+    fig.patch.set_alpha(0)
+    ax.set_facecolor((0,0,0,0))
+    for spine in ax.spines.values():
+        spine.set_color("#9fb8cc")
+        spine.set_alpha(0.55)
+    ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
+
+    vals = [_whole(v) for v in values]
+    tr = [float(v) for v in trend]
+    x = list(range(len(vals)))
+    ax.plot(x, vals, marker="o", markersize=6.5, linewidth=3.2, color="#fbc52b", label="Actual", zorder=4)
+    if vals:
+        ax.fill_between(x, vals, color="#fbc52b", alpha=0.16, zorder=1)
+
+    numeric = [v for v in vals + tr if isinstance(v, (int,float))]
+    spread = max(numeric)-min(numeric) if numeric else 1
+    gap = max(1, spread*0.10)
+    required = max([((a+gap)-t) for a,t in zip(vals,tr) if isinstance(a,(int,float)) and isinstance(t,(int,float))] or [0])
+    display_trend=[t+max(0,required) for t in tr]
+    ax.plot(x, display_trend, linestyle=(0,(6,4)), linewidth=2.5, color="#edf4fb", label="Trend Direction", zorder=3)
+
+    data_gap=max(0.7, spread*0.045)
+    for xi,yi in zip(x,vals):
+        if isinstance(yi,(int,float)):
+            txt=f"{yi}%" if percent else f"{yi}"
+            ax.text(xi, yi+data_gap, txt, color="#ffd22e", fontsize=8.8, fontweight="bold", ha="center", va="bottom", zorder=5)
+
+    if labels:
+        if period=="ytd":
+            shown=[]
+            for raw in labels:
+                try:
+                    dt=datetime.strptime(str(raw), "%b %d, %Y")
+                    shown.append(dt.strftime("%b") if dt.day not in (14,15) else dt.strftime("%b %d").replace(" 0"," "))
+                except Exception:
+                    shown.append(str(raw))
+            idxs=list(range(len(labels)))
+        else:
+            shown=[]
+            for raw in labels:
+                try:
+                    dt=datetime.strptime(str(raw), "%b %d, %Y")
+                    shown.append(dt.strftime("%b %d").replace(" 0"," "))
+                except Exception:
+                    shown.append(str(raw))
+            idxs=list(range(len(labels)))
+        ax.set_xticks(idxs); ax.set_xticklabels([shown[i] for i in idxs], fontsize=8.5, color="#eef4fa")
+
+    allv=[v for v in vals+display_trend if isinstance(v,(int,float))]
+    if allv:
+        lo,hi=min(allv),max(allv)
+        if percent:
+            lower=min(0, math.floor((lo-max(5,spread*.14))/10)*10)
+            upper=max(10, math.ceil((hi+max(5,spread*.14))/10)*10)
+        else:
+            lower=max(0, math.floor(lo-max(3,spread*.12)))
+            upper=math.ceil(hi+max(3,spread*.15))
+        if upper<=lower: upper=lower+10
+        ax.set_ylim(lower,upper)
+
+    ax.grid(True, axis="both", linestyle="--", linewidth=0.65, alpha=0.18, color="#aac4d8")
+    ax.tick_params(colors="#e5eef6", labelsize=8.5)
+    from matplotlib.ticker import FuncFormatter
+    if percent:
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y,_: f"{int(y)}%"))
+    else:
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y,_: f"{int(y)}"))
+    ax.legend(loc="upper right", bbox_to_anchor=(1.0,1.12), frameon=False, labelcolor="#f2f7fb", fontsize=8.5, ncol=2, handlelength=3)
+    fig.subplots_adjust(left=0.07,right=0.99,top=0.88,bottom=0.16)
+    path=tempfile.NamedTemporaryFile(suffix=".png",delete=False).name
+    fig.savefig(path, transparent=True, bbox_inches="tight", pad_inches=0.03)
+    plt.close(fig)
+    return path
+
+
+def _add_kpi_template_slide(prs, blank, name: str, kpi: Dict[str, Any], period_key: str, period_title: str):
+    slide=prs.slides.add_slide(blank)
+    if not _add_full_bleed_picture(slide, KPI_TEMPLATE_PATH):
+        _set_bg(slide, NAVY)
+
+    # Cover the reference sample content while retaining the globe / ambient background.
+    for x,y,w,h in [(0.0,0.52,10.25,1.12),(0.17,1.60,13.05,4.18),(0.0,5.84,13.333,1.42)]:
+        sh=slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
+        sh.fill.solid(); sh.fill.fore_color.rgb=NAVY; sh.line.fill.background()
+
+    meta=kpi.get("meta",{})
+    label=meta.get("label",name)
+    unit=meta.get("unit")
+    good=meta.get("good","low")
+    d=kpi.get(period_key,{}) or {}
+    values=list(d.get("values",[]) or [])
+    labels=list(d.get("labels",[]) or [])
+    trend=list(d.get("trend",[]) or [])
+    latest=d.get("latest")
+    delta=d.get("delta")
+    primary,secondary,strap=_kpi_heading(label)
+
+    # Header
+    secondary_x = min(6.05, 0.48 + 0.22 * len(primary))
+    _textbox(slide,0.46,0.66,max(2.3,secondary_x-0.55),0.50,primary,25,True,GOLD)
+    _textbox(slide,secondary_x,0.66,10.05-secondary_x,0.50,secondary,25,True,WHITE)
+    _textbox(slide,0.47,1.23,9.25,0.25,strap,8.8,False,WHITE)
+
+    # Left KPI panel
+    panel=slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.22), Inches(1.68), Inches(3.55), Inches(4.02))
+    panel.fill.solid(); panel.fill.fore_color.rgb=NAVY_PANEL; panel.line.color.rgb=BLUE_LINE; panel.line.width=Pt(1.1)
+    _textbox(slide,0.46,1.84,3.05,0.30,label.upper(),10.5,True,WHITE)
+    card=slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.35), Inches(2.18), Inches(3.28), Inches(1.52))
+    card.fill.solid(); card.fill.fore_color.rgb=RGBColor(5,36,58); card.line.color.rgb=GOLD; card.line.width=Pt(1.2)
+    circle=slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(0.55), Inches(2.43), Inches(0.86), Inches(0.86))
+    circle.fill.solid(); circle.fill.fore_color.rgb=RGBColor(8,45,67); circle.line.color.rgb=GOLD; circle.line.width=Pt(1.3)
+    _textbox(slide,0.67,2.67,0.62,0.24,"KPI",10,True,GOLD,PP_ALIGN.CENTER)
+    latest_fmt=("—" if latest is None else (_whole(latest) if unit=="percent" else _doi_whole(latest)))
+    suffix="%" if unit=="percent" else " d"
+    _textbox(slide,1.58,2.37,1.80,0.62,f"{latest_fmt}{suffix}",35,True,WHITE,PP_ALIGN.CENTER)
+    if delta is not None:
+        favorable=_delta_favorable(delta,good)
+        col=AQUA if favorable is True else (RED if favorable is False else MUTED)
+        arrow="▼" if float(delta)<0 else ("▲" if float(delta)>0 else "•")
+        meaning="Positive" if favorable is True else ("Negative" if favorable is False else "Neutral")
+        delta_fmt=_whole(abs(delta))
+        _textbox(slide,1.32,3.27,2.15,0.26,f"{arrow} {delta_fmt} vs previous • {meaning}",8.6,True,col,PP_ALIGN.CENTER)
+
+    # Summary panel
+    summ=slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.22), Inches(3.87), Inches(3.55), Inches(1.83))
+    summ.fill.solid(); summ.fill.fore_color.rgb=NAVY_PANEL; summ.line.color.rgb=BLUE_LINE; summ.line.width=Pt(1.0)
+    _textbox(slide,0.46,4.05,2.9,0.27,f"{period_title} SUMMARY",10.5,True,WHITE)
+    numeric=[v for v in values if isinstance(v,(int,float))]
+    if numeric:
+        if unit=="percent":
+            avg=_whole(sum(numeric)/len(numeric)); hi=_whole(max(numeric)); lo=_whole(min(numeric))
+        else:
+            avg=_doi_whole(sum(numeric)/len(numeric)); hi=_doi_whole(max(numeric)); lo=_doi_whole(min(numeric))
+    else:
+        avg=hi=lo="—"
+    for i,(lab,val) in enumerate([("AVERAGE",avg),("HIGH",hi),("LOW",lo)]):
+        x=0.40+i*1.06
+        sh=slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(4.43), Inches(0.94), Inches(0.92))
+        sh.fill.solid(); sh.fill.fore_color.rgb=RGBColor(10,49,70); sh.line.color.rgb=BLUE_LINE
+        _textbox(slide,x+0.07,4.60,0.80,0.18,lab,7.5,True,GOLD,PP_ALIGN.CENTER)
+        _textbox(slide,x+0.03,4.91,0.88,0.30,f"{val}{suffix}",17,True,WHITE,PP_ALIGN.CENTER)
+
+    # Right chart panel
+    right=slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(3.89), Inches(1.68), Inches(9.25), Inches(4.02))
+    right.fill.solid(); right.fill.fore_color.rgb=NAVY_PANEL; right.line.color.rgb=BLUE_LINE; right.line.width=Pt(1.1)
+    _textbox(slide,4.15,1.86,4.3,0.30,f"{period_title} • ACTUAL + TREND",12.5,True,GOLD)
+    view="Month view • fits screen" if period_key=="ytd" else "Week view • fits screen"
+    _textbox(slide,10.60,1.87,2.22,0.24,view,8,False,WHITE,PP_ALIGN.RIGHT)
+    path=_kpi_chart_png(labels,values,trend,percent=(unit=="percent"),period=period_key,good=good)
+    slide.shapes.add_picture(path, Inches(4.18), Inches(2.26), width=Inches(8.62), height=Inches(2.85))
+    latest_dir="→"
+    latest_meaning="Neutral"
+    if delta is not None and abs(float(delta))>1e-12:
+        latest_dir="↑" if float(delta)>0 else "↓"
+        fav=_delta_favorable(delta,good)
+        latest_meaning="Positive" if fav is True else ("Negative" if fav is False else "Neutral")
+    _textbox(slide,4.17,5.24,8.60,0.22,f"Latest movement: {latest_dir} {latest_meaning}  •  Performance rule: {'higher DoI is better' if good=='high' else 'lower stock-out is better' if good=='low' else 'manage within healthy coverage'}",7.7,False,MUTED)
+
+    # Bottom management action strip
+    actions=_kpi_actions(label)
+    for i,(num,head,body) in enumerate(actions):
+        x=0.40+i*3.18
+        if i>0:
+            ln=slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x-0.13), Inches(6.05), Inches(0.012), Inches(0.70))
+            ln.fill.solid(); ln.fill.fore_color.rgb=RGBColor(88,139,173); ln.line.fill.background()
+        circ=slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(x), Inches(6.02), Inches(0.58), Inches(0.58))
+        circ.fill.solid(); circ.fill.fore_color.rgb=NAVY; circ.line.color.rgb=GOLD; circ.line.width=Pt(1.4)
+        _textbox(slide,x+0.08,6.19,0.42,0.18,num,8.5,True,GOLD,PP_ALIGN.CENTER)
+        _textbox(slide,x+0.72,6.03,2.15,0.22,head,8.6,True,GOLD)
+        _textbox(slide,x+0.72,6.34,2.14,0.40,body,8.2,False,WHITE)
+    _textbox(slide,0.40,7.13,7.2,0.17,"RIGHT PRODUCTS.   RIGHT CUSTOMERS.   A STRONGER TOMORROW.",6.7,False,WHITE)
+    _textbox(slide,9.45,7.13,3.45,0.17,"PEOPLE  •  PROCESS  •  PERFORMANCE",6.7,False,WHITE,PP_ALIGN.RIGHT)
 
 
 def _textbox(slide, x, y, w, h, text, size=18, bold=False, color=WHITE, align=PP_ALIGN.LEFT):
@@ -492,53 +732,28 @@ def _add_reorder_model_position_slides(prs, blank, reorder_card: Dict[str, Any],
 def build_presentation(data: Dict[str, Any], area_data: Dict[str, Any], branch_data: Dict[str, Any], all_branches: List[Dict[str, Any]] | None = None, reorder_brand: str = "All Brands") -> bytes:
     """Build the management deck.
 
-    v2.18: Export captures branded YTD and Weekly KPI trends, full Area Performance rates, Branch rankings, and per-Branch Class A/B/C model details.
+    v2.37: Export uses the approved Operations Excellence cover and full-slide KPI template while retaining Area, Branch and ABC drilldowns.
     """
     prs = Presentation(); prs.slide_width = Inches(13.333); prs.slide_height = Inches(7.5)
     blank = prs.slide_layouts[6]
 
-    # Slide 1 Cover — branded executive opening
-    slide = prs.slides.add_slide(blank); _set_bg(slide)
-    if LOGO_PATH.exists():
-        slide.shapes.add_picture(str(LOGO_PATH), Inches(0.68), Inches(0.45), width=Inches(4.25))
-    ribbon = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(6.95), Inches(13.333), Inches(0.10))
-    ribbon.fill.solid(); ribbon.fill.fore_color.rgb = TEAL; ribbon.line.fill.background()
-    ribbon2 = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(7.05), Inches(5.1), Inches(0.06))
-    ribbon2.fill.solid(); ribbon2.fill.fore_color.rgb = GOLD; ribbon2.line.fill.background()
-    _textbox(slide, 0.72, 1.55, 11.9, 0.58, "SCM INVENTORY & DISTRIBUTION PLANNING", 30, True, WHITE)
-    _textbox(slide, 0.72, 2.17, 11.9, 0.35, "Executive KPI Review • YTD • Weekly • ABC Model Position • Area • Branch Details", 14, True, GOLD)
-    _textbox(slide, 0.72, 2.70, 11.4, 0.52, "A branded management deck capturing KPI movement, imported ABC Model Position, Area stock-out rates, branch risk and model-level action details.", 14, False, MUTED)
-    latest_cards = []
-    for name, kpi in data.get("kpis", {}).items():
-        latest = kpi["ytd"].get("latest")
-        delta = kpi["ytd"].get("delta")
-        unit = kpi["meta"].get("unit")
-        latest_value = (_whole(latest) if unit == "percent" else _doi_whole(latest)) if latest is not None else "—"
-        latest_cards.append((kpi["meta"].get("label", name), latest_value, "%" if unit == "percent" else " d", delta, kpi["meta"].get("good", "low")))
-    for i, c in enumerate(latest_cards):
-        x = 0.72 + (i % 3) * 4.12; y = 3.0 + (i // 3) * 1.65
-        _card(slide, x, y, 3.72, 1.32, *c)
-    branch_count = len(all_branches or [])
-    area_count = len(data.get("areas", [])) - (1 if data.get("areas") and data.get("areas", [])[0] == "Overall" else 0)
-    _textbox(slide, 0.72, 6.84, 11.8, 0.25, f"Coverage: {area_count} Areas • {branch_count} Branches • Source: KPI_YTD_Input, KPI_WEEKLY_Input and Raw Distribution data", 8.5, False, MUTED)
+    # Slide 1 Cover — approved Operations Excellence design template.
+    slide = prs.slides.add_slide(blank)
+    if not _add_full_bleed_picture(slide, COVER_TEMPLATE_PATH):
+        _set_bg(slide, NAVY)
+        _textbox(slide, 0.68, 1.55, 11.9, 0.58, "INVENTORY AND", 30, True, WHITE)
+        _textbox(slide, 0.68, 2.18, 11.9, 0.58, "DISTRIBUTION PLANNING", 30, True, GOLD)
+        _textbox(slide, 0.68, 2.81, 11.9, 0.58, "DEPARTMENT - SCM", 30, True, WHITE)
+    # The supplied reference artwork is cleaned once and the source date is rendered dynamically.
+    _textbox(slide, 0.62, 4.55, 4.30, 0.33, _source_date(data), 15.5, False, WHITE)
 
     _add_kpi_summary_slide(prs, blank, data)
     _add_reorder_model_position_slides(prs, blank, data.get("reorder_card", {}), reorder_brand)
 
-    # YTD / Weekly trend slides — all six KPIs captured.
-    for period_key, period_title in [("ytd", "YTD KPI TRENDS"), ("weekly", "WEEKLY KPI TRENDS")]:
-        kpi_items = list(data.get("kpis", {}).items())
-        for page in range(math.ceil(len(kpi_items)/3) or 1):
-            slide = prs.slides.add_slide(blank); _set_bg(slide)
-            subset = kpi_items[page*3:(page+1)*3]
-            total_pages = max(1, math.ceil(len(kpi_items)/3))
-            _title(slide, f"{period_title} · {page+1}/{total_pages}", "Average, High, Low and Trend Direction highlight momentum, volatility and emerging exceptions.")
-            y = 1.45
-            for name, kpi in subset:
-                d = kpi[period_key]
-                path = _chart_png(d.get("labels", []), d.get("values", []), d.get("trend", []), kpi["meta"].get("label", name), kpi["meta"].get("unit") == "percent", period_key, kpi["meta"].get("good", "low"))
-                slide.shapes.add_picture(path, Inches(0.72), Inches(y), width=Inches(11.9), height=Inches(1.6))
-                y += 1.78
+    # Approved KPI template: one full executive slide per KPI for both YTD and Weekly views.
+    for period_key, period_title in [("ytd", "YTD"), ("weekly", "WEEKLY")]:
+        for name, kpi in data.get("kpis", {}).items():
+            _add_kpi_template_slide(prs, blank, name, kpi, period_key, period_title)
 
     _add_area_slide(prs, blank, area_data)
     _add_branch_class_a_ranking_slide(prs, blank, area_data)

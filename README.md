@@ -1,6 +1,15 @@
 # SCM Inventory & Distribution Planning Dashboard
 
-## Release: v2.36
+## Release: v2.37
+
+
+### v2.37 Operations Excellence Presentation Export Redesign
+- Executive PowerPoint export now uses the approved dark-navy / gold **Operations Excellence** cover and KPI design references.
+- Cover artwork keeps the globe/network visual and updates the presentation source date dynamically.
+- Every KPI is exported as its own full executive slide for **YTD** and **Weekly** with Current Value, movement direction, Average/High/Low, Actual + Trend graph and management action strip.
+- All six KPIs remain included, including **Stock-Out · Before PO Balance**.
+- KPI direction rules remain business-aware: stock-out decreases are Positive; MC Class A DoI decreases are Negative because higher coverage is the goal.
+- ABC Model Position, Area, Branch and model-detail sections remain in the export after the redesigned KPI pages.
 
 ### v2.35 Protected Saved Weekly Delivery Plan
 - **Clear Board** clears only the current working/on-screen Weekly Truck Schedule and Allocation view.
