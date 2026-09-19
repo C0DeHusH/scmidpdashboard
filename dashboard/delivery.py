@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from copy import deepcopy
 from pathlib import Path
 from threading import RLock
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -210,14 +211,22 @@ class DeliveryStore:
             self.schedule = migrated
             self._save_schedule()
 
+    @staticmethod
+    def _atomic_write_json(path: Path, payload: Any) -> None:
+        """Persist JSON with replace semantics so interrupted writes cannot corrupt state."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.tmp")
+        tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+
     def _save_master(self) -> None:
-        self.master_path.write_text(json.dumps(self.master, indent=2, ensure_ascii=False), encoding="utf-8")
+        self._atomic_write_json(self.master_path, self.master)
 
     def _save_allocations(self) -> None:
-        self.allocations_path.write_text(json.dumps(self.allocations, indent=2, ensure_ascii=False), encoding="utf-8")
+        self._atomic_write_json(self.allocations_path, self.allocations)
 
     def _save_schedule(self) -> None:
-        self.schedule_path.write_text(json.dumps(self.schedule, indent=2, ensure_ascii=False), encoding="utf-8")
+        self._atomic_write_json(self.schedule_path, self.schedule)
 
     def reset_to_defaults(self) -> None:
         """Restore shipped Delivery master data and clear all saved weekly planning rows."""
@@ -260,7 +269,7 @@ class DeliveryStore:
             # Keep the complete Monday-Saturday ribbon visible even while drilling into one day.
             analysis["daily_summaries"] = list(plan["weekly"].get("daily_summaries") or [])
         with self._lock:
-            master = json.loads(json.dumps(self.master))
+            master = deepcopy(self.master)
             allocations = list(self.allocations)
             schedule = list(self.schedule)
         return {
@@ -317,7 +326,7 @@ class DeliveryStore:
                     by_branch[branch.upper()] = {"branch": branch, "area": _clean(r.get("area")), "active": bool(r.get("active", True))}
                 self.master["branches"] = sorted(by_branch.values(), key=lambda x: (x["area"], x["branch"]))
             self._save_master()
-            return json.loads(json.dumps(self.master))
+            return deepcopy(self.master)
 
     def import_schedule(self, path: str | Path) -> Tuple[List[Dict[str, str]], List[str]]:
         """Import and replace the weekly truck schedule from XLSX/XLSM/CSV.
@@ -715,7 +724,7 @@ class DeliveryStore:
         with self._lock:
             allocations = [dict(x) for x in self.allocations]
             schedule = [dict(x) for x in self.schedule]
-            master = json.loads(json.dumps(self.master))
+            master = deepcopy(self.master)
 
         model_index, branch_area = self._master_maps()
         dashboard_lookup = self._dashboard_lookup(dashboard_records)
@@ -1169,11 +1178,4 @@ class DeliveryStore:
         """Build the Monday-Saturday plan once for exports that need every day."""
         return self._build_week_plan(dashboard_records)
 
-    def analyze_week(self, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-        return self._build_week_plan(dashboard_records)["weekly"]
-
-    def analyze(self, day: str, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
-        if day not in DAYS:
-            day = DAYS[0]
-        return self._build_week_plan(dashboard_records)["daily"][day]
 

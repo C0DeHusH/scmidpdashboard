@@ -50,6 +50,7 @@ class XlsxReader:
         self.path = Path(path)
         self._shared_strings: List[str] = []
         self._sheet_paths: Dict[str, str] = {}
+        self._sheet_cache: Dict[str, SheetData] = {}
         self._load_metadata()
 
     @property
@@ -90,24 +91,29 @@ class XlsxReader:
     def read_sheet(self, name: str) -> SheetData:
         if name not in self._sheet_paths:
             raise KeyError(f"Missing worksheet: {name}")
+        cached = self._sheet_cache.get(name)
+        if cached is not None:
+            return cached
+
         with zipfile.ZipFile(self.path) as z:
             root = ET.fromstring(z.read(self._sheet_paths[name]))
 
         sheet_data = root.find(f"{{{_NS_MAIN}}}sheetData")
         rows: List[List[Any]] = []
-        if sheet_data is None:
-            return SheetData(name, rows)
+        if sheet_data is not None:
+            for row_el in sheet_data.findall(f"{{{_NS_MAIN}}}row"):
+                values: List[Any] = []
+                for c in row_el.findall(f"{{{_NS_MAIN}}}c"):
+                    ref = c.attrib.get("r", "A1")
+                    idx = _col_index(ref)
+                    while len(values) <= idx:
+                        values.append(None)
+                    values[idx] = self._cell_value(c)
+                rows.append(values)
 
-        for row_el in sheet_data.findall(f"{{{_NS_MAIN}}}row"):
-            values: List[Any] = []
-            for c in row_el.findall(f"{{{_NS_MAIN}}}c"):
-                ref = c.attrib.get("r", "A1")
-                idx = _col_index(ref)
-                while len(values) <= idx:
-                    values.append(None)
-                values[idx] = self._cell_value(c)
-            rows.append(values)
-        return SheetData(name, rows)
+        result = SheetData(name, rows)
+        self._sheet_cache[name] = result
+        return result
 
     def _cell_value(self, cell: ET.Element) -> Any:
         cell_type = cell.attrib.get("t")

@@ -4,11 +4,16 @@ from flask import Flask, jsonify, render_template, request, session, redirect, u
 from pathlib import Path
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
+from copy import deepcopy
+from functools import wraps
 from dotenv import load_dotenv
+import hmac
 import os
 import shutil
 import json
+import secrets
 import socket
+import tempfile
 import threading
 import time
 import webbrowser
@@ -36,14 +41,39 @@ from dashboard.aging.db import (
 from dashboard.aging.analytics import executive_summary as aging_executive_summary
 from dashboard.aging.importer import import_excel as import_aging_excel, validate_unified_aging
 
+
+def _load_or_create_secret_key() -> str:
+    """Use an environment secret in production and a persistent local secret otherwise."""
+    configured = str(os.environ.get("SCM_SECRET_KEY") or "").strip()
+    if configured:
+        return configured
+
+    secret_path = STATE_ROOT / ".session_secret"
+    try:
+        existing = secret_path.read_text(encoding="utf-8").strip() if secret_path.exists() else ""
+        if len(existing) >= 32:
+            return existing
+        generated = secrets.token_urlsafe(48)
+        tmp = secret_path.with_suffix(".tmp")
+        tmp.write_text(generated, encoding="utf-8")
+        tmp.replace(secret_path)
+        return generated
+    except OSError:
+        # Local fallback if the configured state directory is unexpectedly read-only.
+        return secrets.token_urlsafe(48)
+
+
 app = Flask(__name__)
-app.secret_key = os.environ.get("SCM_SECRET_KEY", "change-this-secret-before-production")
+app.secret_key = _load_or_create_secret_key()
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SCM_COOKIE_SECURE", "0") == "1"
 app.config["JSON_SORT_KEYS"] = False
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 3600
-ADMIN_PASSWORD = os.environ.get("SCM_ADMIN_PASSWORD", "admin123")
+ADMIN_PASSWORD = str(os.environ.get("SCM_ADMIN_PASSWORD") or "admin123")
+if ADMIN_PASSWORD == "admin123":
+    app.logger.warning("SCM_ADMIN_PASSWORD is not configured; local fallback password is active. Set SCM_ADMIN_PASSWORD before production use.")
 ACTIVE_IMPORT = UPLOAD_DIR / "active_import.xlsx"
 EMPTY_STATE_MARKER = STATE_ROOT / ".scm_no_data"
 MANAGEMENT_ALLOCATIONS = STATE_ROOT / "management_allocations.json"
@@ -68,25 +98,60 @@ delivery_store.sync_dashboard_branches(store.raw_records)
 _management_allocations_cache = None
 _bootstrap_cache = {}
 _presentation_input_cache = {}
+_management_lock = threading.RLock()
+_cache_lock = threading.RLock()
+_import_lock = threading.Lock()
+
+_MANAGEMENT_NUMERIC_FIELDS = frozenset({"quantity", "unit_cost", "inventory", "po_balance"})
+_MANAGEMENT_TEXT_FIELDS = frozenset({"remarks"})
+
+
+def _json_payload() -> dict:
+    payload = request.get_json(silent=True)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _send_bytes(payload: bytes, filename: str, mimetype: str):
+    return send_file(BytesIO(payload), mimetype=mimetype, as_attachment=True, download_name=filename)
+
+
+def _save_temp_upload(file_storage, *, prefix: str, allowed_extensions: set[str]) -> Path:
+    ext = Path(file_storage.filename or "").suffix.lower()
+    if ext not in allowed_extensions:
+        allowed = ", ".join(sorted(allowed_extensions))
+        raise ValueError(f"Unsupported file type. Allowed: {allowed}.")
+    fd, raw_path = tempfile.mkstemp(prefix=prefix, suffix=ext, dir=UPLOAD_DIR)
+    os.close(fd)
+    path = Path(raw_path)
+    try:
+        file_storage.save(path)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    return path
 
 
 def _invalidate_bootstrap_cache():
-    _bootstrap_cache.clear()
-    _presentation_input_cache.clear()
+    with _cache_lock:
+        _bootstrap_cache.clear()
+        _presentation_input_cache.clear()
 
 
 def _presentation_inputs():
     """Cache expensive Area/Branch drilldown preparation until the workbook changes."""
     key = store.generated_at.isoformat()
-    cached = _presentation_input_cache.get(key)
-    if cached is not None:
-        return cached
+    with _cache_lock:
+        cached = _presentation_input_cache.get(key)
+        if cached is not None:
+            return cached
+
     payload = {
         "area": store.area_dashboard("Overall"),
         "branches": [store.branch_dashboard(branch) for branch in store.branches],
     }
-    _presentation_input_cache.clear()
-    _presentation_input_cache[key] = payload
+    with _cache_lock:
+        _presentation_input_cache.clear()
+        _presentation_input_cache[key] = payload
     return payload
 
 
@@ -95,62 +160,82 @@ def role():
 
 
 def _load_management_allocations():
-    """Load persisted Management planning edits with backward compatibility.
-
-    Management planning edits are cached in memory after the first local read.
-    Writes update the cache and an atomic local JSON file.
-    """
+    """Load persisted Management planning edits with backward compatibility."""
     global _management_allocations_cache
-    if _management_allocations_cache is not None:
-        return json.loads(json.dumps(_management_allocations_cache))
-    try:
-        data = None
-        if MANAGEMENT_ALLOCATIONS.exists():
-            data = json.loads(MANAGEMENT_ALLOCATIONS.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
+    with _management_lock:
+        if _management_allocations_cache is not None:
+            return deepcopy(_management_allocations_cache)
+        try:
+            data = json.loads(MANAGEMENT_ALLOCATIONS.read_text(encoding="utf-8")) if MANAGEMENT_ALLOCATIONS.exists() else {}
+            if not isinstance(data, dict):
+                data = {}
+            out = {}
+            numeric_fields = {"quantity", "unit_cost", "inventory", "doi", "po_balance"}
+            text_fields = {"remarks", "class", "brand", "model", "stock_status"}
+            for key, value in data.items():
+                try:
+                    if isinstance(value, dict):
+                        edit = {}
+                        if "quantity" in value or "allocation" in value:
+                            edit["quantity"] = max(0.0, float(value.get("quantity", value.get("allocation", 0)) or 0))
+                        for field in numeric_fields - {"quantity"}:
+                            if field in value:
+                                edit[field] = max(0.0, float(value.get(field) or 0))
+                        for field in text_fields:
+                            if field in value:
+                                edit[field] = str(value.get(field, "") or "").strip()
+                        if "class" in edit:
+                            edit["class"] = edit["class"].upper().replace("CLASS ", "").strip()
+                    else:
+                        edit = {"quantity": max(0.0, float(value or 0))}
+                    out[str(key)] = edit
+                except (TypeError, ValueError):
+                    continue
+            _management_allocations_cache = out
+            return deepcopy(out)
+        except (OSError, json.JSONDecodeError):
             _management_allocations_cache = {}
             return {}
-        out = {}
-        numeric_fields = {"quantity", "unit_cost", "inventory", "doi", "po_balance"}
-        text_fields = {"remarks", "class", "brand", "model", "stock_status"}
-        for key, value in data.items():
-            try:
-                if isinstance(value, dict):
-                    edit = {}
-                    # Backward compatibility: allocation -> quantity.
-                    if "quantity" in value or "allocation" in value:
-                        edit["quantity"] = max(0.0, float(value.get("quantity", value.get("allocation", 0)) or 0))
-                    for field in numeric_fields - {"quantity"}:
-                        if field in value:
-                            edit[field] = max(0.0, float(value.get(field) or 0))
-                    for field in text_fields:
-                        if field in value:
-                            edit[field] = str(value.get(field, "") or "").strip()
-                    if "class" in edit:
-                        edit["class"] = edit["class"].upper().replace("CLASS ", "").strip()
-                else:
-                    edit = {"quantity": max(0.0, float(value or 0))}
-                out[str(key)] = edit
-            except (TypeError, ValueError):
-                continue
-        _management_allocations_cache = out
-        return json.loads(json.dumps(out))
-    except Exception:
-        _management_allocations_cache = {}
-        return {}
 
 
 def _save_management_allocations(data):
     global _management_allocations_cache
-    _management_allocations_cache = json.loads(json.dumps(data))
-    MANAGEMENT_ALLOCATIONS.parent.mkdir(parents=True, exist_ok=True)
-    tmp = MANAGEMENT_ALLOCATIONS.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-    tmp.replace(MANAGEMENT_ALLOCATIONS)
+    snapshot = deepcopy(data)
+    with _management_lock:
+        MANAGEMENT_ALLOCATIONS.parent.mkdir(parents=True, exist_ok=True)
+        tmp = MANAGEMENT_ALLOCATIONS.with_suffix(".tmp")
+        tmp.write_text(json.dumps(snapshot, indent=2, sort_keys=True), encoding="utf-8")
+        tmp.replace(MANAGEMENT_ALLOCATIONS)
+        _management_allocations_cache = snapshot
+
+
+def _merge_management_edits(base: dict, incoming: dict, valid_keys: set[str]) -> tuple[dict, int]:
+    """Merge user-editable Management fields consistently for save and export."""
+    if not isinstance(incoming, dict):
+        raise ValueError("Management edits must be a key/value object.")
+    merged = deepcopy(base)
+    updated = 0
+    allowed = _MANAGEMENT_NUMERIC_FIELDS | _MANAGEMENT_TEXT_FIELDS
+    for raw_key, value in incoming.items():
+        key = str(raw_key)
+        if key not in valid_keys or not isinstance(value, dict):
+            continue
+        edit = {k: v for k, v in dict(merged.get(key) or {}).items() if k in allowed}
+        try:
+            for field in _MANAGEMENT_NUMERIC_FIELDS:
+                if field in value:
+                    edit[field] = max(0.0, float(value.get(field) or 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid numeric Management value for {key}.") from exc
+        for field in _MANAGEMENT_TEXT_FIELDS:
+            if field in value:
+                edit[field] = str(value.get(field, "") or "").strip()
+        merged[key] = edit
+        updated += 1
+    return merged, updated
 
 
 def admin_required(fn):
-    from functools import wraps
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if role() != "admin":
@@ -168,7 +253,7 @@ def index():
 def login():
     if request.method == "POST":
         password = request.form.get("password", "")
-        if password == ADMIN_PASSWORD:
+        if hmac.compare_digest(password, ADMIN_PASSWORD):
             session["is_admin"] = True
             return redirect(url_for("index"))
         flash("Invalid admin password.", "error")
@@ -185,13 +270,16 @@ def logout():
 def api_bootstrap():
     no_data = EMPTY_STATE_MARKER.exists()
     cache_key = (role(), store.generated_at.isoformat(), ACTIVE_IMPORT.exists(), no_data)
-    if cache_key not in _bootstrap_cache:
-        payload = store.bootstrap(role())
-        payload["data_source"] = "No Data" if no_data or not payload.get("has_data") else ("Saved Import" if ACTIVE_IMPORT.exists() else "Bundled Baseline")
-        payload["has_saved_import"] = ACTIVE_IMPORT.exists()
-        _bootstrap_cache.clear()
-        _bootstrap_cache[cache_key] = payload
-    return jsonify(_bootstrap_cache[cache_key])
+    with _cache_lock:
+        cached = _bootstrap_cache.get(cache_key)
+    if cached is None:
+        cached = store.bootstrap(role())
+        cached["data_source"] = "No Data" if no_data or not cached.get("has_data") else ("Saved Import" if ACTIVE_IMPORT.exists() else "Bundled Baseline")
+        cached["has_saved_import"] = ACTIVE_IMPORT.exists()
+        with _cache_lock:
+            _bootstrap_cache.clear()
+            _bootstrap_cache[cache_key] = cached
+    return jsonify(cached)
 
 
 @app.get("/api/area")
@@ -231,31 +319,16 @@ def api_management():
 @app.post("/admin/management/allocations")
 @admin_required
 def admin_management_allocations():
-    payload = request.get_json(force=True, silent=True) or {}
+    payload = _json_payload()
     incoming = payload.get("allocations") or {}
-    if not isinstance(incoming, dict):
-        return jsonify({"error": "Management edits must be a key/value object."}), 400
-    current = _load_management_allocations()
-    valid_keys = {r["key"] for r in store.management_records}
-    numeric_fields = {"quantity", "unit_cost", "inventory", "po_balance"}
-    text_fields = {"remarks"}
-    updated = 0
-    for key, value in incoming.items():
-        key = str(key)
-        if key not in valid_keys or not isinstance(value, dict):
-            continue
-        edit = {k: v for k, v in dict(current.get(key) or {}).items() if k in (numeric_fields | text_fields)}
-        try:
-            for field in numeric_fields:
-                if field in value:
-                    edit[field] = max(0.0, float(value.get(field) or 0))
-            for field in text_fields:
-                if field in value:
-                    edit[field] = str(value.get(field, "") or "").strip()
-        except (TypeError, ValueError):
-            return jsonify({"error": f"Invalid numeric Management value for {key}."}), 400
-        current[key] = edit
-        updated += 1
+    try:
+        current, updated = _merge_management_edits(
+            _load_management_allocations(),
+            incoming,
+            {r["key"] for r in store.management_records},
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     _save_management_allocations(current)
     return jsonify({"ok": True, "updated": updated, "message": f"Saved {updated} Management planning line(s)."})
 
@@ -263,29 +336,16 @@ def admin_management_allocations():
 @app.post("/admin/export/management")
 @admin_required
 def admin_export_management():
-    payload = request.get_json(force=True, silent=True) or {}
+    payload = _json_payload()
     incoming = payload.get("orders") or {}
-    if not isinstance(incoming, dict):
-        return jsonify({"error": "Management edits must be a key/value object."}), 400
-    combined = _load_management_allocations()
-    valid_keys = {r["key"] for r in store.management_records}
-    numeric_fields = {"quantity", "unit_cost", "inventory", "po_balance"}
-    text_fields = {"remarks"}
-    for key, value in incoming.items():
-        key = str(key)
-        if key not in valid_keys or not isinstance(value, dict):
-            continue
-        edit = {k: v for k, v in dict(combined.get(key) or {}).items() if k in (numeric_fields | text_fields)}
-        try:
-            for field in numeric_fields:
-                if field in value:
-                    edit[field] = max(0.0, float(value.get(field) or 0))
-            for field in text_fields:
-                if field in value:
-                    edit[field] = str(value.get(field, "") or "").strip()
-        except (TypeError, ValueError):
-            return jsonify({"error": f"Invalid numeric Management value for {key}."}), 400
-        combined[key] = edit
+    try:
+        combined, _ = _merge_management_edits(
+            _load_management_allocations(),
+            incoming,
+            {r["key"] for r in store.management_records},
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
 
     visible_keys = payload.get("keys") or []
     if visible_keys and isinstance(visible_keys, list):
@@ -325,12 +385,7 @@ def admin_export_management():
     xlsx = build_management_order_xlsx(data)
     stamp = _now_local().strftime("%Y%m%d_%H%M%S")
     filename = f"Management_Order_Plan_{stamp}.xlsx"
-    return send_file(
-        BytesIO(xlsx),
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        as_attachment=True,
-        download_name=filename,
-    )
+    return _send_bytes(xlsx, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @app.get("/api/delivery")
@@ -364,102 +419,94 @@ def api_model():
 @app.post("/admin/import")
 @admin_required
 def admin_import():
-    """Import one consolidated workbook into every analytical module.
-
-    v2.44 treats Raw/KPI/Reorder/Aging as one source-of-truth refresh.  The
-    previous active workbook and Aging database are backed up before commit so
-    a failed Aging parse cannot leave SCM and Aging on different source files.
-    """
+    """Atomically refresh SCM, Management and Aging from one consolidated workbook."""
     global _management_allocations_cache
-    f = request.files.get("file")
-    if not f or not f.filename.lower().endswith(".xlsx"):
+    uploaded = request.files.get("file")
+    if not uploaded:
+        return jsonify({"error": "Please select the consolidated .xlsx import workbook."}), 400
+    original_name = uploaded.filename or "SCM_Import.xlsx"
+    try:
+        tmp = _save_temp_upload(uploaded, prefix="unified_import_", allowed_extensions={".xlsx"})
+    except ValueError:
         return jsonify({"error": "Please select the consolidated .xlsx import workbook."}), 400
 
-    tmp = UPLOAD_DIR / "candidate_import.xlsx"
-    active = ACTIVE_IMPORT
-    active_backup = UPLOAD_DIR / ".active_import_before_unified_refresh.xlsx"
-    aging_backup = AGING_DB_PATH.with_name(".aging_before_unified_refresh.db")
-    tmp.unlink(missing_ok=True)
-    active_backup.unlink(missing_ok=True)
-    aging_backup.unlink(missing_ok=True)
-    f.save(tmp)
-
-    check = DashboardStore.validate(tmp)
-    if not check.ok:
-        tmp.unlink(missing_ok=True)
-        return jsonify({"error": check.message}), 400
-    try:
-        validate_unified_aging(tmp, "Aging")
-    except Exception as exc:
-        tmp.unlink(missing_ok=True)
-        return jsonify({"error": f"Aging validation failed: {exc}"}), 400
-
-    had_active = active.exists()
-    had_aging_db = AGING_DB_PATH.exists()
-    try:
-        if had_active:
-            shutil.copy2(active, active_backup)
-        if had_aging_db:
-            backup_aging_database(aging_backup)
-
-        # Load Aging first while the candidate still exists, then commit the
-        # same file as the active SCM workbook.  Any exception rolls both back.
-        aging_result = import_aging_excel(tmp, f.filename, mode="replace", sheet_name="Aging")
-        os.replace(tmp, active)
-        store.load(active, prevalidated=True)
-        EMPTY_STATE_MARKER.unlink(missing_ok=True)
-
-        # A new consolidated workbook is a new planning baseline.  Management
-        # edits tied to the previous source are intentionally cleared.
-        MANAGEMENT_ALLOCATIONS.unlink(missing_ok=True)
-        _management_allocations_cache = {}
-        delivery_store.sync_dashboard_branches(store.raw_records)
-        _invalidate_bootstrap_cache()
-
-        message = (
-            "Unified import complete — Executive/KPI, Reorder/Management and Motorcycle Aging refreshed from one workbook. "
-            f"Aging: {aging_result['rows']:,} units · {aging_result['branches']} branches · "
-            f"{aging_result['areas']} areas · as of {aging_result['as_of_date']}."
-        )
-        return jsonify({
-            "ok": True,
-            "message": message,
-            "generated_at": store.generated_at.isoformat(),
-            "modules": {
-                "scm": {"status": "updated", "records": len(store.raw_records)},
-                "management": {"status": "updated", "source": "Reorder / Management worksheet"},
-                "aging": {"status": "updated", **aging_result},
-            },
-        })
-    except Exception as exc:
-        # Roll back the saved workbook.
-        try:
-            if had_active and active_backup.exists():
-                shutil.copy2(active_backup, active)
-                store.load(active)
-            else:
-                active.unlink(missing_ok=True)
-                if EMPTY_STATE_MARKER.exists():
-                    store.clear()
-                elif DATA_FILE.exists():
-                    store.load(DATA_FILE)
-        except Exception:
-            pass
-
-        # Roll back the Aging database to the previous refresh.
-        try:
-            if had_aging_db and aging_backup.exists():
-                restore_aging_database(aging_backup)
-            elif AGING_DB_PATH.exists():
-                clear_aging_data()
-        except Exception:
-            pass
-        _invalidate_bootstrap_cache()
-        return jsonify({"error": f"Unified import failed and the previous data was restored: {exc}"}), 400
-    finally:
-        tmp.unlink(missing_ok=True)
+    with _import_lock:
+        active = ACTIVE_IMPORT
+        active_backup = UPLOAD_DIR / ".active_import_before_unified_refresh.xlsx"
+        aging_backup = AGING_DB_PATH.with_name(".aging_before_unified_refresh.db")
         active_backup.unlink(missing_ok=True)
         aging_backup.unlink(missing_ok=True)
+
+        try:
+            check = DashboardStore.validate(tmp)
+            if not check.ok:
+                return jsonify({"error": check.message}), 400
+            try:
+                validate_unified_aging(tmp, "Aging")
+            except Exception as exc:
+                return jsonify({"error": f"Aging validation failed: {exc}"}), 400
+
+            had_active = active.exists()
+            had_aging_db = AGING_DB_PATH.exists()
+            try:
+                if had_active:
+                    shutil.copy2(active, active_backup)
+                if had_aging_db:
+                    backup_aging_database(aging_backup)
+
+                aging_result = import_aging_excel(tmp, original_name, mode="replace", sheet_name="Aging")
+                os.replace(tmp, active)
+                store.load(active, prevalidated=True)
+                EMPTY_STATE_MARKER.unlink(missing_ok=True)
+
+                MANAGEMENT_ALLOCATIONS.unlink(missing_ok=True)
+                with _management_lock:
+                    _management_allocations_cache = {}
+                delivery_store.sync_dashboard_branches(store.raw_records)
+                _invalidate_bootstrap_cache()
+
+                message = (
+                    "Unified import complete — Executive/KPI, Reorder/Management and Motorcycle Aging refreshed from one workbook. "
+                    f"Aging: {aging_result['rows']:,} units · {aging_result['branches']} branches · "
+                    f"{aging_result['areas']} areas · as of {aging_result['as_of_date']}."
+                )
+                return jsonify({
+                    "ok": True,
+                    "message": message,
+                    "generated_at": store.generated_at.isoformat(),
+                    "modules": {
+                        "scm": {"status": "updated", "records": len(store.raw_records)},
+                        "management": {"status": "updated", "source": "Reorder / Management worksheet"},
+                        "aging": {"status": "updated", **aging_result},
+                    },
+                })
+            except Exception as exc:
+                try:
+                    if had_active and active_backup.exists():
+                        shutil.copy2(active_backup, active)
+                        store.load(active)
+                    else:
+                        active.unlink(missing_ok=True)
+                        if EMPTY_STATE_MARKER.exists():
+                            store.clear()
+                        elif DATA_FILE.exists():
+                            store.load(DATA_FILE)
+                except Exception:
+                    app.logger.exception("SCM workbook rollback failed")
+
+                try:
+                    if had_aging_db and aging_backup.exists():
+                        restore_aging_database(aging_backup)
+                    elif AGING_DB_PATH.exists():
+                        clear_aging_data()
+                except Exception:
+                    app.logger.exception("Aging database rollback failed")
+                _invalidate_bootstrap_cache()
+                return jsonify({"error": f"Unified import failed and the previous data was restored: {exc}"}), 400
+        finally:
+            tmp.unlink(missing_ok=True)
+            active_backup.unlink(missing_ok=True)
+            aging_backup.unlink(missing_ok=True)
 
 
 @app.get("/admin/export/pptx")
@@ -480,13 +527,13 @@ def admin_export_pptx():
     ppt = build_presentation(data, prepared["area"], first_branch, all_branch_dashboards, reorder_brand=reorder_brand)
     stamp = _now_local().strftime("%Y%m%d_%H%M%S")
     filename = f"SCM_IDP_Executive_Control_Tower_{stamp}.pptx"
-    return send_file(BytesIO(ppt), mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation", as_attachment=True, download_name=filename)
+    return _send_bytes(ppt, filename, "application/vnd.openxmlformats-officedocument.presentationml.presentation")
 
 
 @app.post("/admin/export/request")
 @admin_required
 def admin_export_request():
-    payload = request.get_json(force=True, silent=True) or {}
+    payload = _json_payload()
     branch = str(payload.get("branch", "")).strip()
     items = payload.get("items") or []
     if not branch or not items:
@@ -498,7 +545,12 @@ def admin_export_request():
         base = store.model_lookup(branch, model)
         if not base:
             continue
-        qty = float(item.get("requested_qty", 0) or 0)
+        try:
+            qty = float(item.get("requested_qty", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if qty <= 0:
+            continue
         new_doi = ((base["inventory"] + qty) / base["avg_daily_sale"]) if base["avg_daily_sale"] > 0 else "N/A"
         area = base["area"]
         verified.append({**base, "requested_qty": qty, "remarks": str(item.get("remarks", "")), "new_doi": round(new_doi, 2) if isinstance(new_doi, float) else new_doi})
@@ -508,33 +560,32 @@ def admin_export_request():
     stamp = _now_local().strftime("%Y%m%d_%H%M%S")
     safe_branch = "_".join(branch.split())
     filename = f"Branch_Request_{safe_branch}_{stamp}.xlsx"
-    return send_file(BytesIO(xlsx), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=filename)
+    return _send_bytes(xlsx, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @app.post("/admin/delivery/import")
 @admin_required
 def admin_delivery_import():
-    f = request.files.get("file")
-    if not f:
+    uploaded = request.files.get("file")
+    if not uploaded:
         return jsonify({"error": "Select an allocation file."}), 400
-    ext = Path(f.filename or "").suffix.lower()
-    if ext not in {".xlsx", ".xlsm", ".csv"}:
+    try:
+        tmp = _save_temp_upload(uploaded, prefix="delivery_allocation_", allowed_extensions={".xlsx", ".xlsm", ".csv"})
+    except ValueError:
         return jsonify({"error": "Allocation import accepts .xlsx, .xlsm or .csv."}), 400
-    tmp = UPLOAD_DIR / f"delivery_allocation_candidate{ext}"
-    f.save(tmp)
     try:
         rows, warnings = delivery_store.import_allocations(tmp)
+        return jsonify({"ok": True, "rows": len(rows), "warnings": warnings[:20], "message": f"Imported {len(rows)} allocation rows."})
     except Exception as exc:
-        tmp.unlink(missing_ok=True)
         return jsonify({"error": str(exc)}), 400
-    tmp.unlink(missing_ok=True)
-    return jsonify({"ok": True, "rows": len(rows), "warnings": warnings[:20], "message": f"Imported {len(rows)} allocation rows."})
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 @app.post("/admin/delivery/master")
 @admin_required
 def admin_delivery_master():
-    payload = request.get_json(force=True, silent=True) or {}
+    payload = _json_payload()
     try:
         master = delivery_store.update_master(str(payload.get("section", "")), payload.get("rows"))
     except Exception as exc:
@@ -545,27 +596,26 @@ def admin_delivery_master():
 @app.post("/admin/delivery/schedule/import")
 @admin_required
 def admin_delivery_schedule_import():
-    f = request.files.get("file")
-    if not f:
+    uploaded = request.files.get("file")
+    if not uploaded:
         return jsonify({"error": "Select a Weekly Truck Schedule file."}), 400
-    ext = Path(f.filename or "").suffix.lower()
-    if ext not in {".xlsx", ".xlsm", ".csv"}:
+    try:
+        tmp = _save_temp_upload(uploaded, prefix="weekly_schedule_", allowed_extensions={".xlsx", ".xlsm", ".csv"})
+    except ValueError:
         return jsonify({"error": "Weekly Schedule import accepts .xlsx, .xlsm or .csv."}), 400
-    tmp = UPLOAD_DIR / f"weekly_schedule_candidate{ext}"
-    f.save(tmp)
     try:
         schedule, warnings = delivery_store.import_schedule(tmp)
+        return jsonify({"ok": True, "rows": len(schedule), "warnings": warnings[:30], "message": f"Imported and saved {len(schedule)} Weekly Truck Schedule row(s)."})
     except Exception as exc:
-        tmp.unlink(missing_ok=True)
         return jsonify({"error": str(exc)}), 400
-    tmp.unlink(missing_ok=True)
-    return jsonify({"ok": True, "rows": len(schedule), "warnings": warnings[:30], "message": f"Imported and saved {len(schedule)} Weekly Truck Schedule row(s)."})
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 @app.post("/admin/delivery/schedule")
 @admin_required
 def admin_delivery_schedule():
-    payload = request.get_json(force=True, silent=True) or {}
+    payload = _json_payload()
     try:
         schedule = delivery_store.update_schedule(payload.get("rows") or [])
     except Exception as exc:
@@ -577,7 +627,7 @@ def admin_delivery_schedule():
 @admin_required
 def admin_delivery_plan_save():
     """Persist the current weekly truck schedule and allocation plan together."""
-    payload = request.get_json(force=True, silent=True) or {}
+    payload = _json_payload()
     try:
         schedule = delivery_store.update_schedule(payload.get("schedule") or [])
         allocations = delivery_store.replace_allocations(payload.get("allocations") or [])
@@ -594,7 +644,7 @@ def admin_delivery_plan_save():
 @app.post("/admin/delivery/allocations")
 @admin_required
 def admin_delivery_allocations():
-    payload = request.get_json(force=True, silent=True) or {}
+    payload = _json_payload()
     try:
         allocations = delivery_store.replace_allocations(payload.get("rows") or [])
     except Exception as exc:
@@ -605,7 +655,7 @@ def admin_delivery_allocations():
 @app.patch("/admin/delivery/allocation/<int:index>")
 @admin_required
 def admin_delivery_allocation_update(index: int):
-    payload = request.get_json(force=True, silent=True) or {}
+    payload = _json_payload()
     try:
         allocations = delivery_store.update_allocation(index, payload)
     except (ValueError, IndexError) as exc:
@@ -618,7 +668,7 @@ def admin_delivery_allocation_update(index: int):
 @app.post("/admin/delivery/allocation/<int:index>/transfer")
 @admin_required
 def admin_delivery_allocation_transfer(index: int):
-    payload = request.get_json(force=True, silent=True) or {}
+    payload = _json_payload()
     try:
         allocations = delivery_store.transfer_allocation(
             index,
@@ -655,7 +705,7 @@ def admin_clear_data():
     files are imported again. Bundled templates/reference files are preserved.
     """
     global _management_allocations_cache
-    payload = request.get_json(force=True, silent=True) or {}
+    payload = _json_payload()
     confirmation = str(payload.get("confirmation") or "").strip().upper()
     if confirmation != "CLEAR DATA":
         return jsonify({"error": "Type CLEAR DATA exactly to confirm the reset."}), 400
@@ -700,7 +750,7 @@ def admin_delivery_clear():
     and must survive Clear Board. The explicit allocation-only action remains available
     for users who intentionally want to delete saved allocation rows.
     """
-    payload = request.get_json(force=True, silent=True) or {}
+    payload = _json_payload()
     target = str(payload.get("target", "all")).strip().lower()
     if target not in {"all", "allocations"}:
         return jsonify({"error": "Clear target must be all or allocations."}), 400
@@ -737,12 +787,7 @@ def admin_export_delivery():
     stamp = _now_local().strftime("%Y%m%d_%H%M%S")
     safe_day = day.replace(" ", "_")
     filename = f"Delivery_Plan_{safe_day}_{stamp}.xlsx"
-    return send_file(
-        BytesIO(xlsx),
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        as_attachment=True,
-        download_name=filename,
-    )
+    return _send_bytes(xlsx, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @app.get("/health")
@@ -761,6 +806,14 @@ def health():
     }
 
 
+@app.errorhandler(413)
+def _request_too_large(_exc):
+    message = "Upload exceeds the 25 MB dashboard limit."
+    if request.path.startswith("/admin/") or request.path.startswith("/api/"):
+        return jsonify({"error": message}), 413
+    return message, 413
+
+
 @app.after_request
 def _response_headers(response):
     # Static assets may be cached; API/data responses must stay fresh after imports.
@@ -771,6 +824,9 @@ def _response_headers(response):
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
     response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     return response
 
 

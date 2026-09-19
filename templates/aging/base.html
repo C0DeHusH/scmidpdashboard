@@ -15,8 +15,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config={theme:{extend:{fontFamily:{sans:['Segoe UI Variable','Segoe UI','Arial','sans-serif']}}}}</script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='aging/css/app.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/v244-ui.css') }}?v=2453">
+  <link rel="stylesheet" href="{{ url_for('static', filename='aging/css/app.css') }}?v=2460">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/v244-ui.css') }}?v=2460">
 </head>
 <body class="aging-module sidebar-expanded min-h-screen font-sans antialiased">
 <div id="sidebarBackdrop"></div>
@@ -137,25 +137,11 @@
   </section>
 </div>
 
-<script>
-(function(){
-  const $=s=>document.querySelector(s);
-  function applySidebarPreference(){const collapsed=localStorage.getItem('scm-sidebar-collapsed')==='1';document.body.classList.toggle('sidebar-collapsed',collapsed);document.body.classList.toggle('sidebar-expanded',!collapsed);const b=$('#sidebarToggle');if(b)b.title=collapsed?'Expand sidebar':'Collapse sidebar';}
-  function toggleSidebar(){if(window.innerWidth<1024){document.body.classList.toggle('sidebar-mobile-open');return}const collapsed=!document.body.classList.contains('sidebar-collapsed');localStorage.setItem('scm-sidebar-collapsed',collapsed?'1':'0');applySidebarPreference();setTimeout(()=>window.dispatchEvent(new Event('resize')),230)}
-  function syncThemeButton(){const light=document.documentElement.dataset.theme==='light';const l=$('#themeLabel');if(l)l.textContent=light?'Dark Mode':'Light Mode';const icon=$('#themeIcon');if(icon)icon.innerHTML=light?'<svg viewBox="0 0 24 24"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>':'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>'}
-  function setTheme(theme){document.documentElement.dataset.theme=theme;localStorage.setItem('scm-theme',theme);syncThemeButton();window.dispatchEvent(new CustomEvent('scm-theme-change',{detail:{theme}}));}
-  applySidebarPreference();syncThemeButton();
-  $('#sidebarToggle')?.addEventListener('click',toggleSidebar);$('#mobileSidebarBtn')?.addEventListener('click',()=>document.body.classList.add('sidebar-mobile-open'));$('#sidebarBackdrop')?.addEventListener('click',()=>document.body.classList.remove('sidebar-mobile-open'));window.addEventListener('resize',()=>{if(window.innerWidth>=1024)document.body.classList.remove('sidebar-mobile-open')});
-  $('#themeBtn')?.addEventListener('click',()=>setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark'));
-  $('#pptBtn')?.addEventListener('click',async()=>{const btn=$('#pptBtn'),label=btn?.querySelector('.sidebar-label'),old=label?.textContent||'Export Deck';btn.disabled=true;if(label)label.textContent='Generating Deck…';try{const r=await fetch('/admin/export/pptx');if(!r.ok){let e={};try{e=await r.json()}catch(_){ }alert(e.error||'PowerPoint export failed.');return}const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a'),cd=r.headers.get('content-disposition')||'',m=cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);a.href=url;a.download=m?decodeURIComponent(m[1].replaceAll('"','')):'SCM_Executive_Review.pptx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}finally{btn.disabled=false;if(label)label.textContent=old}});
-  const clearModal=$('#clearDataModal');function openClearData(){if(!clearModal)return;clearModal.classList.remove('hidden');clearModal.classList.add('flex');const i=$('#clearDataConfirmation');if(i){i.value='';setTimeout(()=>i.focus(),80)}}function closeClearData(){if(!clearModal)return;clearModal.classList.add('hidden');clearModal.classList.remove('flex')}
-  $('#clearAllDataBtn')?.addEventListener('click',openClearData);$('#cancelClearDataBtn')?.addEventListener('click',closeClearData);clearModal?.addEventListener('click',e=>{if(e.target===clearModal)closeClearData()});
-  $('#confirmClearDataBtn')?.addEventListener('click',async()=>{const confirmation=String($('#clearDataConfirmation')?.value||'').trim();if(confirmation!=='CLEAR DATA'){alert('Type CLEAR DATA exactly to confirm.');return}const btn=$('#confirmClearDataBtn');btn.disabled=true;btn.textContent='Clearing…';try{const r=await fetch('/admin/clear-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation})});let d={};try{d=await r.json()}catch(_){ }if(!r.ok){alert(d.error||'Clear Data failed.');return}window.location.href='/'}finally{btn.disabled=false;btn.textContent='Clear All Data'}});
-})();
-</script>
-<script src="{{ url_for('static', filename='js/sidebar-data-ops.js') }}?v=2453"></script>
-<script src="{{ url_for('static', filename='js/unified-import.js') }}"></script>
-<script src="{{ url_for('static', filename='aging/js/app.js') }}"></script>
+<div id="agingToast" role="status" aria-live="polite" aria-atomic="true" class="fixed bottom-4 right-4 z-[120] hidden max-w-sm rounded-xl border px-4 py-3 text-sm shadow-2xl"></div>
+<script src="{{ url_for('static', filename='js/aging-shell.js') }}?v=2460"></script>
+<script src="{{ url_for('static', filename='js/sidebar-data-ops.js') }}?v=2460"></script>
+<script src="{{ url_for('static', filename='js/unified-import.js') }}?v=2460"></script>
+<script src="{{ url_for('static', filename='aging/js/app.js') }}?v=2460"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -1,6 +1,6 @@
-> **v2.45.3:** Data Operations now uses a hover/tap flyout menu for Data Import, Export Deck, and Clear Data.
+> **v2.46.0:** Professional code audit release: lean distribution package, extracted static assets, safer persistence/imports, stale-request cancellation, stronger input handling, and regression smoke tests.
 
-# SCM Inventory & Distribution Planning Control Tower — v2.45
+# SCM Inventory & Distribution Planning Control Tower — v2.46
 
 A unified local Flask control tower for:
 
@@ -10,7 +10,7 @@ A unified local Flask control tower for:
 - Weekly Delivery Planning and truck capacity control
 - Motorcycle Aging Decision Intelligence
 
-## v2.45 unified source architecture
+## v2.46 unified source architecture
 
 ```text
 One Consolidated Excel Workbook
@@ -74,5 +74,15 @@ Sidebar actions are consolidated under **Data Operations**. The PowerPoint expor
 This repository includes a production `render.yaml` configured for Gunicorn, `/health`, and a persistent local-data disk. See `RENDER_DEPLOYMENT.md` before deploying. Because this no-Supabase edition stores runtime state locally, a Render persistent disk is required for durable imports and Aging/Delivery/Management state.
 
 
-## v2.45.3 navigation reliability
+## v2.46.0 navigation reliability
 Data Operations is now an in-sidebar accordion. Hover on desktop or tap/click on touch/keyboard expands Data Import, Export Deck, and Clear Data inside the sidebar. It never floats over workspace content. The Windows launcher also auto-installs missing Python dependencies.
+
+## v2.46.0 verification
+
+Run the dependency-free core smoke suite after code changes:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+For the detailed findings and intentionally deferred refactors, see `CODE_AUDIT_v2.46.0.md`.

@@ -205,7 +205,7 @@ html[data-theme="light"] .unified-import-module,html[data-theme="light"] .unifie
   .unified-import-panel,.unified-import-backdrop,.unified-import-modal,.unified-import-track span,#scmSidebar,.workspace-hero,.glass,.theme-surface{transition:none!important;animation:none!important}
 }
 
-/* v2.45.3 — Data Operations in-sidebar accordion
+/* v2.46.0 — Data Operations in-sidebar accordion
    Intentionally stays inside the navigation flow: no fixed/floating menu,
    no native <details> marker, and no overlap with workspace content. */
 #sidebarInner{
