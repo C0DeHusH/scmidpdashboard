@@ -3,7 +3,8 @@ from __future__ import annotations
 from flask import Flask, jsonify, render_template, request, session, redirect, url_for, send_file, flash
 from pathlib import Path
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+from dotenv import load_dotenv
 import os
 import shutil
 import json
@@ -18,22 +19,75 @@ from dashboard.ppt_export import build_presentation
 from dashboard.delivery import DeliveryStore, DAYS
 
 BASE = Path(__file__).resolve().parent
+load_dotenv(BASE / ".env")
 DATA_FILE = BASE / "data" / "MC_Dashboard_IMPORT.xlsx"
 STATE_ROOT = Path(os.environ.get("SCM_DATA_DIR", str(BASE / "uploads")))
 STATE_ROOT.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR = STATE_ROOT
+
+from dashboard.aging.routes import aging_bp
+from dashboard.aging.db import (
+    clear_data as clear_aging_data,
+    record_count as aging_record_count,
+    DB_PATH as AGING_DB_PATH,
+    backup_database as backup_aging_database,
+    restore_database as restore_aging_database,
+)
+from dashboard.aging.analytics import executive_summary as aging_executive_summary
+from dashboard.aging.importer import import_excel as import_aging_excel, validate_unified_aging
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SCM_SECRET_KEY", "change-this-secret-before-production")
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["JSON_SORT_KEYS"] = False
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 3600
 ADMIN_PASSWORD = os.environ.get("SCM_ADMIN_PASSWORD", "admin123")
 ACTIVE_IMPORT = UPLOAD_DIR / "active_import.xlsx"
+EMPTY_STATE_MARKER = STATE_ROOT / ".scm_no_data"
 MANAGEMENT_ALLOCATIONS = STATE_ROOT / "management_allocations.json"
-store = DashboardStore(ACTIVE_IMPORT if ACTIVE_IMPORT.exists() else DATA_FILE)
-delivery_store = DeliveryStore(BASE / "data" / "delivery_master.json", STATE_ROOT / "delivery")
+APP_TZ = timezone(timedelta(hours=int(os.environ.get("SCM_UTC_OFFSET_HOURS", "8"))))
+
+app.register_blueprint(aging_bp)
+
+
+def _now_local() -> datetime:
+    return datetime.now(APP_TZ)
+
+
+store = DashboardStore(
+    None if EMPTY_STATE_MARKER.exists()
+    else (ACTIVE_IMPORT if ACTIVE_IMPORT.exists() else DATA_FILE)
+)
+delivery_store = DeliveryStore(
+    BASE / "data" / "delivery_master.json",
+    STATE_ROOT / "delivery",
+)
 delivery_store.sync_dashboard_branches(store.raw_records)
+_management_allocations_cache = None
+_bootstrap_cache = {}
+_presentation_input_cache = {}
+
+
+def _invalidate_bootstrap_cache():
+    _bootstrap_cache.clear()
+    _presentation_input_cache.clear()
+
+
+def _presentation_inputs():
+    """Cache expensive Area/Branch drilldown preparation until the workbook changes."""
+    key = store.generated_at.isoformat()
+    cached = _presentation_input_cache.get(key)
+    if cached is not None:
+        return cached
+    payload = {
+        "area": store.area_dashboard("Overall"),
+        "branches": [store.branch_dashboard(branch) for branch in store.branches],
+    }
+    _presentation_input_cache.clear()
+    _presentation_input_cache[key] = payload
+    return payload
 
 
 def role():
@@ -43,16 +97,18 @@ def role():
 def _load_management_allocations():
     """Load persisted Management planning edits with backward compatibility.
 
-    Older releases stored only Order Quantity (and later Remarks). v2.9 allows
-    the visible source fields to be overridden without modifying the imported
-    workbook itself. The original row key remains the stable identity even when
-    Brand or Model is edited.
+    Management planning edits are cached in memory after the first local read.
+    Writes update the cache and an atomic local JSON file.
     """
-    if not MANAGEMENT_ALLOCATIONS.exists():
-        return {}
+    global _management_allocations_cache
+    if _management_allocations_cache is not None:
+        return json.loads(json.dumps(_management_allocations_cache))
     try:
-        data = json.loads(MANAGEMENT_ALLOCATIONS.read_text(encoding="utf-8"))
+        data = None
+        if MANAGEMENT_ALLOCATIONS.exists():
+            data = json.loads(MANAGEMENT_ALLOCATIONS.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
+            _management_allocations_cache = {}
             return {}
         out = {}
         numeric_fields = {"quantity", "unit_cost", "inventory", "doi", "po_balance"}
@@ -77,12 +133,16 @@ def _load_management_allocations():
                 out[str(key)] = edit
             except (TypeError, ValueError):
                 continue
-        return out
+        _management_allocations_cache = out
+        return json.loads(json.dumps(out))
     except Exception:
+        _management_allocations_cache = {}
         return {}
 
 
 def _save_management_allocations(data):
+    global _management_allocations_cache
+    _management_allocations_cache = json.loads(json.dumps(data))
     MANAGEMENT_ALLOCATIONS.parent.mkdir(parents=True, exist_ok=True)
     tmp = MANAGEMENT_ALLOCATIONS.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
@@ -123,7 +183,15 @@ def logout():
 
 @app.get("/api/bootstrap")
 def api_bootstrap():
-    return jsonify(store.bootstrap(role()))
+    no_data = EMPTY_STATE_MARKER.exists()
+    cache_key = (role(), store.generated_at.isoformat(), ACTIVE_IMPORT.exists(), no_data)
+    if cache_key not in _bootstrap_cache:
+        payload = store.bootstrap(role())
+        payload["data_source"] = "No Data" if no_data or not payload.get("has_data") else ("Saved Import" if ACTIVE_IMPORT.exists() else "Bundled Baseline")
+        payload["has_saved_import"] = ACTIVE_IMPORT.exists()
+        _bootstrap_cache.clear()
+        _bootstrap_cache[cache_key] = payload
+    return jsonify(_bootstrap_cache[cache_key])
 
 
 @app.get("/api/area")
@@ -255,12 +323,13 @@ def admin_export_management():
         "grand_total": round(sum(float(r.get("total_amount", 0) or 0) for r in ordered_rows), 4),
     }
     xlsx = build_management_order_xlsx(data)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    stamp = _now_local().strftime("%Y%m%d_%H%M%S")
+    filename = f"Management_Order_Plan_{stamp}.xlsx"
     return send_file(
         BytesIO(xlsx),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name=f"Management_Order_Plan_{stamp}.xlsx",
+        download_name=filename,
     )
 
 
@@ -295,20 +364,102 @@ def api_model():
 @app.post("/admin/import")
 @admin_required
 def admin_import():
+    """Import one consolidated workbook into every analytical module.
+
+    v2.44 treats Raw/KPI/Reorder/Aging as one source-of-truth refresh.  The
+    previous active workbook and Aging database are backed up before commit so
+    a failed Aging parse cannot leave SCM and Aging on different source files.
+    """
+    global _management_allocations_cache
     f = request.files.get("file")
     if not f or not f.filename.lower().endswith(".xlsx"):
-        return jsonify({"error": "Please select an .xlsx import workbook."}), 400
+        return jsonify({"error": "Please select the consolidated .xlsx import workbook."}), 400
+
     tmp = UPLOAD_DIR / "candidate_import.xlsx"
+    active = ACTIVE_IMPORT
+    active_backup = UPLOAD_DIR / ".active_import_before_unified_refresh.xlsx"
+    aging_backup = AGING_DB_PATH.with_name(".aging_before_unified_refresh.db")
+    tmp.unlink(missing_ok=True)
+    active_backup.unlink(missing_ok=True)
+    aging_backup.unlink(missing_ok=True)
     f.save(tmp)
+
     check = DashboardStore.validate(tmp)
     if not check.ok:
         tmp.unlink(missing_ok=True)
         return jsonify({"error": check.message}), 400
-    active = UPLOAD_DIR / "active_import.xlsx"
-    shutil.move(tmp, active)
-    store.load(active)
-    delivery_store.sync_dashboard_branches(store.raw_records)
-    return jsonify({"ok": True, "message": "Import completed. Dashboard data refreshed.", "generated_at": store.generated_at.isoformat()})
+    try:
+        validate_unified_aging(tmp, "Aging")
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        return jsonify({"error": f"Aging validation failed: {exc}"}), 400
+
+    had_active = active.exists()
+    had_aging_db = AGING_DB_PATH.exists()
+    try:
+        if had_active:
+            shutil.copy2(active, active_backup)
+        if had_aging_db:
+            backup_aging_database(aging_backup)
+
+        # Load Aging first while the candidate still exists, then commit the
+        # same file as the active SCM workbook.  Any exception rolls both back.
+        aging_result = import_aging_excel(tmp, f.filename, mode="replace", sheet_name="Aging")
+        os.replace(tmp, active)
+        store.load(active, prevalidated=True)
+        EMPTY_STATE_MARKER.unlink(missing_ok=True)
+
+        # A new consolidated workbook is a new planning baseline.  Management
+        # edits tied to the previous source are intentionally cleared.
+        MANAGEMENT_ALLOCATIONS.unlink(missing_ok=True)
+        _management_allocations_cache = {}
+        delivery_store.sync_dashboard_branches(store.raw_records)
+        _invalidate_bootstrap_cache()
+
+        message = (
+            "Unified import complete — Executive/KPI, Reorder/Management and Motorcycle Aging refreshed from one workbook. "
+            f"Aging: {aging_result['rows']:,} units · {aging_result['branches']} branches · "
+            f"{aging_result['areas']} areas · as of {aging_result['as_of_date']}."
+        )
+        return jsonify({
+            "ok": True,
+            "message": message,
+            "generated_at": store.generated_at.isoformat(),
+            "modules": {
+                "scm": {"status": "updated", "records": len(store.raw_records)},
+                "management": {"status": "updated", "source": "Reorder / Management worksheet"},
+                "aging": {"status": "updated", **aging_result},
+            },
+        })
+    except Exception as exc:
+        # Roll back the saved workbook.
+        try:
+            if had_active and active_backup.exists():
+                shutil.copy2(active_backup, active)
+                store.load(active)
+            else:
+                active.unlink(missing_ok=True)
+                if EMPTY_STATE_MARKER.exists():
+                    store.clear()
+                elif DATA_FILE.exists():
+                    store.load(DATA_FILE)
+        except Exception:
+            pass
+
+        # Roll back the Aging database to the previous refresh.
+        try:
+            if had_aging_db and aging_backup.exists():
+                restore_aging_database(aging_backup)
+            elif AGING_DB_PATH.exists():
+                clear_aging_data()
+        except Exception:
+            pass
+        _invalidate_bootstrap_cache()
+        return jsonify({"error": f"Unified import failed and the previous data was restored: {exc}"}), 400
+    finally:
+        tmp.unlink(missing_ok=True)
+        active_backup.unlink(missing_ok=True)
+        aging_backup.unlink(missing_ok=True)
 
 
 @app.get("/admin/export/pptx")
@@ -317,11 +468,19 @@ def admin_export_pptx():
     # v2.18 PowerPoint export is a branded KPI review deck: YTD, Weekly,
     # All-Area Performance, Branch rankings and per-Branch A/B/C model details.
     data = store.bootstrap(role())
-    all_branch_dashboards = [store.branch_dashboard(branch) for branch in store.branches]
+    data["export_generated_at"] = _now_local().isoformat()
+    # Include the integrated Motorcycle Aging executive snapshot only when
+    # Aging data is actually loaded. A global Clear Data therefore produces
+    # no Aging slides and no stale values in the management deck.
+    data["aging_summary"] = aging_executive_summary() if aging_record_count() > 0 else None
+    prepared = _presentation_inputs()
+    all_branch_dashboards = prepared["branches"]
     reorder_brand = request.args.get("reorder_brand", "All Brands")
-    ppt = build_presentation(data, store.area_dashboard("Overall"), store.branch_dashboard(None), all_branch_dashboards, reorder_brand=reorder_brand)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    return send_file(BytesIO(ppt), mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation", as_attachment=True, download_name=f"SCM_IDP_Executive_Control_Tower_{stamp}.pptx")
+    first_branch = all_branch_dashboards[0] if all_branch_dashboards else {}
+    ppt = build_presentation(data, prepared["area"], first_branch, all_branch_dashboards, reorder_brand=reorder_brand)
+    stamp = _now_local().strftime("%Y%m%d_%H%M%S")
+    filename = f"SCM_IDP_Executive_Control_Tower_{stamp}.pptx"
+    return send_file(BytesIO(ppt), mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation", as_attachment=True, download_name=filename)
 
 
 @app.post("/admin/export/request")
@@ -346,9 +505,10 @@ def admin_export_request():
     if not verified:
         return jsonify({"error": "No valid request lines."}), 400
     xlsx = build_branch_request_xlsx(branch, area, verified)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    stamp = _now_local().strftime("%Y%m%d_%H%M%S")
     safe_branch = "_".join(branch.split())
-    return send_file(BytesIO(xlsx), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=f"Branch_Request_{safe_branch}_{stamp}.xlsx")
+    filename = f"Branch_Request_{safe_branch}_{stamp}.xlsx"
+    return send_file(BytesIO(xlsx), mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=filename)
 
 
 @app.post("/admin/delivery/import")
@@ -485,6 +645,51 @@ def admin_delivery_allocation_delete(index: int):
     return jsonify({"ok": True, "allocations": allocations, "message": "Allocation deleted. Delivery capacity has been recalculated."})
 
 
+
+@app.post("/admin/clear-data")
+@admin_required
+def admin_clear_data():
+    """Destructively clear all user-loaded SCM and Motorcycle Aging data.
+
+    The application remains installed, but dashboards stay empty until fresh
+    files are imported again. Bundled templates/reference files are preserved.
+    """
+    global _management_allocations_cache
+    payload = request.get_json(force=True, silent=True) or {}
+    confirmation = str(payload.get("confirmation") or "").strip().upper()
+    if confirmation != "CLEAR DATA":
+        return jsonify({"error": "Type CLEAR DATA exactly to confirm the reset."}), 400
+
+    ACTIVE_IMPORT.unlink(missing_ok=True)
+    (UPLOAD_DIR / "candidate_import.xlsx").unlink(missing_ok=True)
+    MANAGEMENT_ALLOCATIONS.unlink(missing_ok=True)
+    _management_allocations_cache = {}
+
+    # Main SCM dashboard must remain empty after reset, including across restarts.
+    store.clear()
+    EMPTY_STATE_MARKER.write_text(_now_local().isoformat(), encoding="utf-8")
+
+    # Clear saved planning rows while keeping application configuration/templates.
+    delivery_store.reset_to_defaults()
+    delivery_store.sync_dashboard_branches([])
+
+    # The integrated Motorcycle Aging module is part of the same system reset.
+    clear_aging_data()
+
+    _invalidate_bootstrap_cache()
+
+    for legacy_dir in (STATE_ROOT / "exports", BASE / "exports"):
+        if legacy_dir.exists() and legacy_dir.is_dir():
+            shutil.rmtree(legacy_dir, ignore_errors=True)
+
+    return jsonify({
+        "ok": True,
+        "message": "All imported and saved system data was cleared. Dashboards are now empty until new files are imported.",
+        "records": 0,
+        "aging_records": 0,
+    })
+
+
 @app.post("/admin/delivery/clear")
 @admin_required
 def admin_delivery_clear():
@@ -525,22 +730,48 @@ def admin_export_delivery():
     day = request.args.get("day", "Whole Week")
     if day not in DAYS and day != "Whole Week":
         day = "Whole Week"
-    weekly = {d: delivery_store.analyze(d, store.raw_records) for d in DAYS}
-    current = delivery_store.analyze_week(store.raw_records) if day == "Whole Week" else weekly[day]
+    plan = delivery_store.analysis_bundle(store.raw_records)
+    weekly = plan["daily"]
+    current = plan["weekly"] if day == "Whole Week" else weekly[day]
     xlsx = build_delivery_plan_xlsx(day, current, weekly, delivery_store.schedule)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    stamp = _now_local().strftime("%Y%m%d_%H%M%S")
     safe_day = day.replace(" ", "_")
+    filename = f"Delivery_Plan_{safe_day}_{stamp}.xlsx"
     return send_file(
         BytesIO(xlsx),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name=f"Delivery_Plan_{safe_day}_{stamp}.xlsx",
+        download_name=filename,
     )
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "role": role(), "records": len(store.raw_records), "management_models": len(store.management_records), "delivery_allocations": len(delivery_store.allocations)}
+    return {
+        "status": "ok",
+        "role": role(),
+        "records": len(store.raw_records),
+        "management_models": len(store.management_records),
+        "aging_records": aging_record_count(),
+        "delivery_allocations": len(delivery_store.allocations),
+        "storage": "local",
+        "saved_import": ACTIVE_IMPORT.exists(),
+        "data_source": "no-data" if EMPTY_STATE_MARKER.exists() else ("saved-import" if ACTIVE_IMPORT.exists() else "bundled-baseline"),
+        "export_storage": "in-memory-download-only",
+    }
+
+
+@app.after_request
+def _response_headers(response):
+    # Static assets may be cached; API/data responses must stay fresh after imports.
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=3600"
+    elif request.path == "/" or request.path.startswith("/login") or request.path.startswith("/api/") or request.path.startswith("/admin/") or request.path.startswith("/aging/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 def _port_is_available(host: str, port: int) -> bool:
@@ -609,9 +840,9 @@ if __name__ == "__main__":
     print("=" * 68)
 
     _open_browser(url)
-    app.run(
-        host=host,
-        port=port,
-        debug=os.environ.get("FLASK_DEBUG") == "1",
-        use_reloader=False,
-    )
+    # Waitress is used locally instead of Flask's development server. It is more
+    # stable on Windows and can keep lightweight dashboard requests responsive
+    # while an export request is running.
+    from waitress import serve
+    threads = max(4, int(os.environ.get("SCM_SERVER_THREADS", "8")))
+    serve(app, host=host, port=port, threads=threads, channel_timeout=240)

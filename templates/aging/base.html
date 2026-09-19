@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#030b18">
+  <title>{% block title %}Motorcycle Aging · SCM IDP Control Tower{% endblock %}</title>
+  <script>
+  (function(){
+    const saved=localStorage.getItem('scm-theme');
+    const preferred=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';
+    document.documentElement.dataset.theme=saved||preferred;
+  })();
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={theme:{extend:{fontFamily:{sans:['Segoe UI Variable','Segoe UI','Arial','sans-serif']}}}}</script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='aging/css/app.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/v244-ui.css') }}?v=2453">
+</head>
+<body class="aging-module sidebar-expanded min-h-screen font-sans antialiased">
+<div id="sidebarBackdrop"></div>
+<aside id="scmSidebar" aria-label="SCM navigation">
+  <div id="sidebarInner">
+    <div class="sidebar-brand sidebar-brand-logo">
+      <div id="sidebarBrandCopy" class="min-w-0 flex-1">
+        <img src="/static/brilliant4_logo.png" alt="Brilliant4 Equity Holdings, Inc." class="sidebar-logo-img">
+        <img src="/static/brilliant4_logo.png" alt="Brilliant4" class="sidebar-logo-mini">
+        <div class="mt-1 truncate text-[9px] font-black tracking-[.18em] text-blue-400">SCM CONTROL TOWER</div>
+      </div>
+      <button id="sidebarToggle" class="sidebar-toggle" title="Collapse sidebar" aria-label="Expand or collapse sidebar"><svg id="sidebarToggleIcon" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+    </div>
+
+    <div class="mt-4">
+      <div class="sidebar-section-label">Workspace</div>
+      <nav class="space-y-1">
+        <a href="/?tab=dashboard" class="sidebar-nav-item" title="Executive Dashboard"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="sidebar-label">Executive Dashboard</span></a>
+        <a href="/?tab=management" class="sidebar-nav-item" title="Management Order Plan"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M8 4h8M9 2h6a1 1 0 0 1 1 1v3H8V3a1 1 0 0 1 1-1Z"/><rect x="5" y="5" width="14" height="16" rx="2"/><path d="M8 10h8M8 14h5M8 18h3"/></svg></span><span class="sidebar-label">Management Order Plan</span></a>
+        <a href="/?tab=simulator" class="sidebar-nav-item" title="Branch Request Simulator"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3M17 17H6l3 3"/><path d="M18 7l-3 3M6 17l3-3"/></svg></span><span class="sidebar-label">Branch Request Simulator</span></a>
+        <a href="/?tab=delivery" class="sidebar-nav-item" title="Delivery Plan"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M3 7h11v10H3zM14 10h4l3 3v4h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg></span><span class="sidebar-label">Delivery Plan</span></a>
+        <a href="/aging/" class="sidebar-nav-item active" title="Motorcycle Aging Dashboard"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M5 17h14M7 17l1-5h8l1 5"/><circle cx="8" cy="18" r="2"/><circle cx="16" cy="18" r="2"/><path d="M9 12l1-3h4l1 3"/></svg></span><span class="sidebar-label">Motorcycle Aging</span></a>
+      </nav>
+    </div>
+
+    <div class="mt-5 border-t border-slate-800 pt-4">
+      <div class="sidebar-section-label">Display &amp; Access</div>
+      <button id="themeBtn" type="button" class="sidebar-action" title="Toggle dark / light mode"><span class="sidebar-icon" id="themeIcon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg></span><span id="themeLabel" class="sidebar-label">Light Mode</span></button>
+      {% if role == 'admin' %}
+      <div id="dataOpsHost" class="sidebar-dataops-host">
+        <button id="dataOpsTrigger" type="button" class="sidebar-action sidebar-dataops-trigger" title="Data Import, Export Deck and Clear Data" aria-haspopup="true" aria-expanded="false" aria-controls="dataOpsPanel">
+          <span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><path d="M8 7v10"/></svg></span>
+          <span class="sidebar-label">Data Operations</span>
+          <span class="sidebar-dataops-arrow" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span>
+        </button>
+        <div id="dataOpsPanel" class="sidebar-dataops-panel" role="menu" aria-hidden="true" aria-label="Data Operations submenu">
+          <div class="sidebar-dataops-panel-inner">
+            <button type="button" class="sidebar-subaction" data-open-unified-import role="menuitem" title="Import consolidated SCM + Aging workbook">
+              <span class="sidebar-subicon"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 20h14"/></svg></span>
+              <span class="sidebar-label"><b>Data Import</b><small>Refresh SCM + Aging</small></span>
+            </button>
+            <button id="pptBtn" type="button" class="sidebar-subaction" role="menuitem" title="Export presentation deck">
+              <span class="sidebar-subicon"><svg viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M5 20h14"/></svg></span>
+              <span class="sidebar-label"><b>Export Deck</b><small>Generate report-ready PPTX</small></span>
+            </button>
+            <div class="sidebar-dataops-separator" aria-hidden="true"></div>
+            <button id="clearAllDataBtn" type="button" class="sidebar-subaction danger" role="menuitem" title="Clear all SCM and Motorcycle Aging data">
+              <span class="sidebar-subicon"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 10v7M14 10v7"/></svg></span>
+              <span class="sidebar-label"><b>Clear Data</b><small>Total system reset</small></span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <form action="/logout" method="post"><button class="sidebar-action" type="submit" title="Logout Admin"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3"/><path d="M13 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6"/></svg></span><span class="sidebar-label">Logout Admin</span></button></form>
+      {% else %}
+      <a href="/login" class="sidebar-action" title="Admin Login"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M14 7l-5 5 5 5M9 12h12"/><path d="M11 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/></svg></span><span class="sidebar-label">Admin Login</span></a>
+      {% endif %}
+    </div>
+
+    <div class="mt-auto border-t border-slate-800 px-1 pt-3">
+      <div class="sidebar-role-card"><div class="sidebar-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></div><div class="sidebar-role-copy min-w-0"><div class="text-[9px] font-black uppercase tracking-wider text-slate-600">Current Access</div><div class="text-xs font-black">{{ role|title }}</div></div></div>
+    </div>
+  </div>
+</aside>
+<div id="workspace">
+  <div class="mx-auto max-w-[1600px] px-3 py-4 sm:px-5 lg:px-8">
+    <div class="mobile-command-bar sticky top-2 z-40 mb-3 items-center justify-between rounded-2xl border border-slate-800 bg-[var(--surface)]/95 px-3 py-2 shadow-lg backdrop-blur lg:hidden">
+      <button id="mobileSidebarBtn" type="button" class="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-700 text-slate-300" aria-label="Open navigation"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      <img src="/static/brilliant4_logo.png" alt="Brilliant4" class="h-8 w-auto rounded-md bg-white px-2 py-1">
+      <div class="rounded-full border border-slate-700 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-slate-400">{{ role }}</div>
+    </div>
+
+    <section class="workspace-hero">
+      <div class="workspace-hero-main">
+        <div class="workspace-eyebrow">Supply Chain · Inventory Aging Intelligence</div>
+        <h1 class="workspace-title">{% block page_title %}Motorcycle Aging{% endblock %}</h1>
+        <p class="workspace-subtitle">{% block page_subtitle %}Unit-level aging exposure, capital risk, and branch/model priorities inside the same SCM decision workspace.{% endblock %}</p>
+      </div>
+      <div class="workspace-hero-meta">
+        <span class="workspace-chip"><span class="workspace-chip-dot"></span>Local Control Tower</span>
+        {% block hero_meta %}<span class="workspace-chip">Module · <strong>Aging</strong></span>{% endblock %}
+        <span class="workspace-chip">Access · <strong>{{ role|title }}</strong></span>
+      </div>
+    </section>
+
+    <div class="content-wrap">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="flash-message {% if category=='success' %}flash-success{% else %}flash-error{% endif %}">{{ message }}</div>
+        {% endfor %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+
+{% if role == 'admin' %}
+{% include '_unified_import_modal.html' %}
+
+<div id="clearDataModal" class="fixed inset-0 z-[95] hidden items-center justify-center bg-slate-950/85 p-3 backdrop-blur-sm">
+  <div class="glass w-full max-w-xl overflow-hidden rounded-2xl border border-red-500/30">
+    <div class="border-b border-slate-800 p-4 sm:p-5"><div class="section-kicker text-red-400">ADMIN DATA RESET</div><h3 class="mt-1 text-lg font-black">Clear All User Data</h3><p class="mt-2 text-xs leading-relaxed text-slate-500">This permanently clears SCM KPI/graph data, Management edits, Delivery allocations and schedules, and the Motorcycle Aging database. All dashboards remain empty until new files are imported.</p></div>
+    <div class="space-y-4 p-4 sm:p-5"><div class="rounded-xl border border-red-500/25 bg-red-500/5 p-3 text-xs leading-relaxed text-red-300"><span class="font-black">Total reset.</span> Templates, application code, and static assets are preserved.</div><label class="block text-[10px] font-black uppercase tracking-wider text-slate-500">Type CLEAR DATA to confirm total reset<input id="clearDataConfirmation" autocomplete="off" placeholder="CLEAR DATA" class="mt-2 w-full rounded-xl border px-3 py-3 text-sm font-black tracking-wider"></label><div class="flex flex-wrap justify-end gap-2"><button id="cancelClearDataBtn" type="button" class="rounded-xl border border-slate-700 px-4 py-2.5 text-xs font-black text-slate-300">Cancel</button><button id="confirmClearDataBtn" type="button" class="rounded-xl bg-red-500 px-4 py-2.5 text-xs font-black text-white hover:bg-red-400">Clear All Data</button></div></div>
+  </div>
+</div>
+{% endif %}
+
+<div id="columnGuideModal" class="modal-shell" aria-hidden="true">
+  <div class="modal-backdrop" data-close-column-guide></div>
+  <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="columnGuideTitle">
+    <div class="modal-header">
+      <div><div class="eyebrow">Data Dictionary</div><h2 id="columnGuideTitle" class="mt-1 text-xl font-semibold text-white">Unit-Level Column Guide</h2><p class="mt-1 text-xs text-slate-400">How to interpret every field shown in the aging table.</p></div>
+      <button class="icon-button" type="button" data-close-column-guide aria-label="Close column guide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="modal-body"><div class="dictionary-grid">
+      <div class="dictionary-item"><b>Branch</b><span>The branch currently holding or assigned to the motorcycle unit.</span></div><div class="dictionary-item"><b>Area</b><span>The geographic or operational cluster where the branch belongs.</span></div><div class="dictionary-item"><b>Standard Description</b><span>The standard model description used to group the same motorcycle model consistently.</span></div><div class="dictionary-item"><b>Brand</b><span>The motorcycle manufacturer or supplier brand.</span></div><div class="dictionary-item"><b>Engine No.</b><span>The unique engine identification number used for traceability.</span></div><div class="dictionary-item"><b>Chassis</b><span>The unique frame or chassis number of the unit.</span></div><div class="dictionary-item"><b>Created On</b><span>Branch-level aging basis date.</span></div><div class="dictionary-item"><b>Incoming Date</b><span>Company-level aging basis date.</span></div><div class="dictionary-item"><b>Age Days</b><span>Exact days from the selected basis date to the As-of Date.</span></div><div class="dictionary-item"><b>Qty</b><span>Number of motorcycle units represented by the row.</span></div><div class="dictionary-item"><b>Value</b><span>Inventory value represented by the row.</span></div><div class="dictionary-item"><b>Location</b><span>Original location reference from the import file.</span></div>
+    </div></div>
+  </section>
+</div>
+
+<script>
+(function(){
+  const $=s=>document.querySelector(s);
+  function applySidebarPreference(){const collapsed=localStorage.getItem('scm-sidebar-collapsed')==='1';document.body.classList.toggle('sidebar-collapsed',collapsed);document.body.classList.toggle('sidebar-expanded',!collapsed);const b=$('#sidebarToggle');if(b)b.title=collapsed?'Expand sidebar':'Collapse sidebar';}
+  function toggleSidebar(){if(window.innerWidth<1024){document.body.classList.toggle('sidebar-mobile-open');return}const collapsed=!document.body.classList.contains('sidebar-collapsed');localStorage.setItem('scm-sidebar-collapsed',collapsed?'1':'0');applySidebarPreference();setTimeout(()=>window.dispatchEvent(new Event('resize')),230)}
+  function syncThemeButton(){const light=document.documentElement.dataset.theme==='light';const l=$('#themeLabel');if(l)l.textContent=light?'Dark Mode':'Light Mode';const icon=$('#themeIcon');if(icon)icon.innerHTML=light?'<svg viewBox="0 0 24 24"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>':'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>'}
+  function setTheme(theme){document.documentElement.dataset.theme=theme;localStorage.setItem('scm-theme',theme);syncThemeButton();window.dispatchEvent(new CustomEvent('scm-theme-change',{detail:{theme}}));}
+  applySidebarPreference();syncThemeButton();
+  $('#sidebarToggle')?.addEventListener('click',toggleSidebar);$('#mobileSidebarBtn')?.addEventListener('click',()=>document.body.classList.add('sidebar-mobile-open'));$('#sidebarBackdrop')?.addEventListener('click',()=>document.body.classList.remove('sidebar-mobile-open'));window.addEventListener('resize',()=>{if(window.innerWidth>=1024)document.body.classList.remove('sidebar-mobile-open')});
+  $('#themeBtn')?.addEventListener('click',()=>setTheme(document.documentElement.dataset.theme==='dark'?'light':'dark'));
+  $('#pptBtn')?.addEventListener('click',async()=>{const btn=$('#pptBtn'),label=btn?.querySelector('.sidebar-label'),old=label?.textContent||'Export Deck';btn.disabled=true;if(label)label.textContent='Generating Deck…';try{const r=await fetch('/admin/export/pptx');if(!r.ok){let e={};try{e=await r.json()}catch(_){ }alert(e.error||'PowerPoint export failed.');return}const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a'),cd=r.headers.get('content-disposition')||'',m=cd.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);a.href=url;a.download=m?decodeURIComponent(m[1].replaceAll('"','')):'SCM_Executive_Review.pptx';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}finally{btn.disabled=false;if(label)label.textContent=old}});
+  const clearModal=$('#clearDataModal');function openClearData(){if(!clearModal)return;clearModal.classList.remove('hidden');clearModal.classList.add('flex');const i=$('#clearDataConfirmation');if(i){i.value='';setTimeout(()=>i.focus(),80)}}function closeClearData(){if(!clearModal)return;clearModal.classList.add('hidden');clearModal.classList.remove('flex')}
+  $('#clearAllDataBtn')?.addEventListener('click',openClearData);$('#cancelClearDataBtn')?.addEventListener('click',closeClearData);clearModal?.addEventListener('click',e=>{if(e.target===clearModal)closeClearData()});
+  $('#confirmClearDataBtn')?.addEventListener('click',async()=>{const confirmation=String($('#clearDataConfirmation')?.value||'').trim();if(confirmation!=='CLEAR DATA'){alert('Type CLEAR DATA exactly to confirm.');return}const btn=$('#confirmClearDataBtn');btn.disabled=true;btn.textContent='Clearing…';try{const r=await fetch('/admin/clear-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation})});let d={};try{d=await r.json()}catch(_){ }if(!r.ok){alert(d.error||'Clear Data failed.');return}window.location.href='/'}finally{btn.disabled=false;btn.textContent='Clear All Data'}});
+})();
+</script>
+<script src="{{ url_for('static', filename='js/sidebar-data-ops.js') }}?v=2453"></script>
+<script src="{{ url_for('static', filename='js/unified-import.js') }}"></script>
+<script src="{{ url_for('static', filename='aging/js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

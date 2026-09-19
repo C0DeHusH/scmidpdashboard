@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: scm-idp-dashboard
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 180
+    healthCheckPath: /health
+    numInstances: 1
+    envVars:
+      - key: SCM_SECRET_KEY
+        generateValue: true
+      - key: SCM_ADMIN_PASSWORD
+        sync: false
+      - key: SCM_UTC_OFFSET_HOURS
+        value: "8"
+      - key: SCM_DATA_DIR
+        value: /var/data/scm
+    disk:
+      name: scm-local-data
+      mountPath: /var/data/scm
+      sizeGB: 1

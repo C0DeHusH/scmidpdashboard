@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from threading import RLock
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -89,9 +89,9 @@ class ImportValidation:
 
 
 class DashboardStore:
-    def __init__(self, workbook_path: str | Path):
+    def __init__(self, workbook_path: str | Path | None):
         self._lock = RLock()
-        self.workbook_path = Path(workbook_path)
+        self.workbook_path: Optional[Path] = None
         self.raw_records: List[Dict[str, Any]] = []
         self.management_records: List[Dict[str, Any]] = []
         self.management_sheet_name: str = ""
@@ -99,8 +99,36 @@ class DashboardStore:
         self.kpis: Dict[str, Dict[str, Any]] = {}
         self.areas: List[str] = []
         self.branches: List[str] = []
-        self.generated_at = datetime.now()
-        self.load(self.workbook_path)
+        self.generated_at = datetime.now(timezone(timedelta(hours=8)))
+        if workbook_path is None:
+            self.clear()
+        else:
+            self.load(workbook_path)
+
+    @staticmethod
+    def _empty_kpis() -> Dict[str, Dict[str, Any]]:
+        empty_series = {"labels": [], "values": [], "trend": [], "latest": None, "delta": None}
+        return {
+            name: {
+                "meta": KPI_META[name],
+                "ytd": dict(empty_series),
+                "weekly": dict(empty_series),
+            }
+            for name in TARGET_KPIS
+        }
+
+    def clear(self) -> None:
+        """Put the dashboard into a persistent no-data presentation state."""
+        with self._lock:
+            self.workbook_path = None
+            self.raw_records = []
+            self.management_records = []
+            self.management_sheet_name = ""
+            self.management_title = "Management Order Planning"
+            self.kpis = self._empty_kpis()
+            self.areas = []
+            self.branches = []
+            self.generated_at = datetime.now(timezone(timedelta(hours=8)))
 
     @staticmethod
     def _find_management_sheet(reader: XlsxReader) -> Tuple[Optional[str], Optional[int]]:
@@ -131,10 +159,12 @@ class DashboardStore:
     def validate(path: str | Path) -> ImportValidation:
         try:
             r = XlsxReader(path)
-            required = {"Raw", "KPI_YTD_Input", "KPI_WEEKLY_Input"}
+            # v2.44 uses one consolidated workbook for the full control tower.
+            # Aging is now part of the same import contract rather than a separate upload.
+            required = {"Raw", "KPI_YTD_Input", "KPI_WEEKLY_Input", "Aging"}
             missing = required - set(r.sheet_names)
             if missing:
-                return ImportValidation(False, "Missing worksheet(s): " + ", ".join(sorted(missing)))
+                return ImportValidation(False, "Unified import is missing worksheet(s): " + ", ".join(sorted(missing)))
             raw = r.read_sheet("Raw").rows
             if len(raw) < 3:
                 return ImportValidation(False, "Raw sheet does not contain enough rows.")
@@ -147,18 +177,29 @@ class DashboardStore:
             missing_cols = needed - set(headers)
             if missing_cols:
                 return ImportValidation(False, "Raw sheet missing column(s): " + ", ".join(sorted(missing_cols)))
+
+            aging_rows = r.read_sheet("Aging").rows
+            if len(aging_rows) < 2:
+                return ImportValidation(False, "Aging sheet does not contain inventory rows.")
+            aging_headers = {_clean(x).upper() for x in aging_rows[0] if _clean(x)}
+            aging_needed = {"BRANCH", "INCOMING DATE", "CREATED ON", "STANDARD DESCRIPTION"}
+            aging_missing = aging_needed - aging_headers
+            if aging_missing:
+                return ImportValidation(False, "Aging sheet missing column(s): " + ", ".join(sorted(aging_missing)))
+
             management_sheet, management_header = DashboardStore._find_management_sheet(r)
             if management_sheet is None or management_header is None:
-                return ImportValidation(True, "Valid SCM dashboard import workbook. Management source not found; Management Order Plan will remain empty until an updated workbook is imported.")
-            return ImportValidation(True, f"Valid SCM dashboard import workbook. Management source: {management_sheet}.")
+                return ImportValidation(True, "Valid unified SCM + Aging workbook. Management source not found; Management Order Plan will remain empty.")
+            return ImportValidation(True, f"Valid unified SCM + Aging workbook. Management source: {management_sheet}.")
         except Exception as exc:
             return ImportValidation(False, f"Unable to read workbook: {exc}")
 
-    def load(self, path: str | Path) -> None:
+    def load(self, path: str | Path, *, prevalidated: bool = False) -> None:
         path = Path(path)
-        valid = self.validate(path)
-        if not valid.ok:
-            raise ValueError(valid.message)
+        if not prevalidated:
+            valid = self.validate(path)
+            if not valid.ok:
+                raise ValueError(valid.message)
         reader = XlsxReader(path)
         raw_rows = reader.read_sheet("Raw").rows
         ytd_rows = reader.read_sheet("KPI_YTD_Input").rows
@@ -185,7 +226,7 @@ class DashboardStore:
             self.kpis = kpis
             self.areas = sorted({r["area"] for r in records if r["area"]})
             self.branches = sorted({r["branch"] for r in records if r["branch"]})
-            self.generated_at = datetime.now()
+            self.generated_at = datetime.now(timezone(timedelta(hours=8)))
 
     def _parse_raw(self, rows: List[List[Any]]) -> List[Dict[str, Any]]:
         headers = [_clean(x) for x in rows[1]]
@@ -954,6 +995,7 @@ class DashboardStore:
         return {
             "role": role,
             "generated_at": self.generated_at.isoformat(),
+            "has_data": bool(self.raw_records or self.management_records or any((v.get("ytd", {}).get("values") or v.get("weekly", {}).get("values")) for v in self.kpis.values())),
             "areas": ["Overall"] + self.areas,
             "branches": self.branches,
             "kpis": self.kpis,

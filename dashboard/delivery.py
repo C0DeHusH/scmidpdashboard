@@ -106,9 +106,12 @@ class DeliveryStore:
 
     def load(self) -> None:
         with self._lock:
-            self.master = json.loads(self.master_path.read_text(encoding="utf-8"))
-            self.allocations = self._read_json_list(self.allocations_path)
-            self.schedule = self._read_json_list(self.schedule_path)
+            local_master = json.loads(self.master_path.read_text(encoding="utf-8"))
+            local_allocations = self._read_json_list(self.allocations_path)
+            local_schedule = self._read_json_list(self.schedule_path)
+            self.master = local_master
+            self.allocations = local_allocations
+            self.schedule = local_schedule
             self._normalize_master()
             self._migrate_legacy_schedule()
 
@@ -215,6 +218,18 @@ class DeliveryStore:
 
     def _save_schedule(self) -> None:
         self.schedule_path.write_text(json.dumps(self.schedule, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    def reset_to_defaults(self) -> None:
+        """Restore shipped Delivery master data and clear all saved weekly planning rows."""
+        with self._lock:
+            default_master = json.loads(self.default_master_path.read_text(encoding="utf-8"))
+            self.master = default_master
+            self.allocations = []
+            self.schedule = []
+            self._normalize_master()
+            self._save_master()
+            self._save_allocations()
+            self._save_schedule()
 
     def sync_dashboard_branches(self, dashboard_records: Iterable[Dict[str, Any]]) -> None:
         """Add branches missing from the delivery master without overwriting user edits."""
@@ -1149,6 +1164,10 @@ class DeliveryStore:
             "thresholds": {"underutilized_pct": under_pct, "full_pct": full_pct, "max_branches_per_truck": max_branches},
         }
         return {"daily": daily_results, "weekly": weekly}
+
+    def analysis_bundle(self, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+        """Build the Monday-Saturday plan once for exports that need every day."""
+        return self._build_week_plan(dashboard_records)
 
     def analyze_week(self, dashboard_records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         return self._build_week_plan(dashboard_records)["weekly"]

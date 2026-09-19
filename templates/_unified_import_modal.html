@@ -1,0 +1,48 @@
+{% if role == 'admin' %}
+<div id="unifiedImportModal" class="unified-import-modal" aria-hidden="true">
+  <div class="unified-import-backdrop" data-close-unified-import></div>
+  <section class="unified-import-panel" role="dialog" aria-modal="true" aria-labelledby="unifiedImportTitle">
+    <header class="unified-import-head">
+      <div>
+        <div class="workspace-eyebrow">Unified Data Refresh</div>
+        <h2 id="unifiedImportTitle">Import the complete control-tower workbook</h2>
+        <p>One workbook refreshes SCM inventory, KPI trends, management reorder intelligence, and Motorcycle Aging together.</p>
+      </div>
+      <button type="button" class="unified-import-close" data-close-unified-import aria-label="Close import dialog">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+
+    <div class="unified-import-body">
+      <div class="unified-import-modules" aria-label="Modules refreshed by this import">
+        <div class="unified-import-module"><span class="module-check">01</span><div><b>Executive + KPI</b><small>Raw inventory, YTD and Weekly trends</small></div></div>
+        <div class="unified-import-module"><span class="module-check">02</span><div><b>Management Reorder</b><small>Class A/B/C, stock status, PO balance and order planning</small></div></div>
+        <div class="unified-import-module"><span class="module-check">03</span><div><b>Motorcycle Aging</b><small>Unit-level aging, branch/area exposure and capital-at-risk</small></div></div>
+      </div>
+
+      <label id="unifiedImportDropzone" class="unified-import-dropzone" tabindex="0" role="button" aria-label="Choose consolidated Excel workbook">
+        <input id="unifiedImportFile" type="file" accept=".xlsx" hidden>
+        <span class="dropzone-icon"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 20h14"/></svg></span>
+        <span class="dropzone-copy"><b id="unifiedImportFileName">Choose consolidated workbook</b><small id="unifiedImportFileMeta">Required sheets: Raw · KPI_YTD_Input · KPI_WEEKLY_Input · Aging · Reorder/Management</small></span>
+        <span class="dropzone-action">Browse</span>
+      </label>
+
+      <div id="unifiedImportProgress" class="unified-import-progress" aria-live="polite">
+        <div class="unified-import-progress-head"><span id="unifiedImportProgressLabel">Ready for one-step refresh</span><b id="unifiedImportProgressPct">0%</b></div>
+        <div class="unified-import-track"><span id="unifiedImportProgressBar"></span></div>
+        <div id="unifiedImportStage" class="unified-import-stage">Select the consolidated .xlsx file. Aging no longer needs a separate import.</div>
+      </div>
+
+      <div id="unifiedImportResult" class="unified-import-result" hidden></div>
+    </div>
+
+    <footer class="unified-import-footer">
+      <div class="unified-import-note"><span class="workspace-chip-dot"></span><span>Refresh is transactional: if any required module fails validation, the previous data remains active.</span></div>
+      <div class="unified-import-actions">
+        <button type="button" class="unified-import-secondary" data-close-unified-import>Cancel</button>
+        <button id="unifiedImportSubmit" type="button" class="unified-import-primary" disabled>Import All Data</button>
+      </div>
+    </footer>
+  </section>
+</div>
+{% endif %}
