@@ -18,6 +18,35 @@
       input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();clearTimeout(timer);submitFilter()}});
     });
   }
+
+  const unitForm=document.querySelector('[data-unit-filter]');
+  if(unitForm){
+    const search=document.getElementById('unitTraceSearch');
+    const age=document.getElementById('unitAgeFilter');
+    const sort=document.getElementById('unitSortFilter');
+    const bandButtons=[...document.querySelectorAll('[data-unit-band]')];
+    let unitTimer=null,unitSubmitting=false;
+    const submitUnit=()=>{
+      if(unitSubmitting)return;
+      unitSubmitting=true;
+      unitForm.classList.add('is-updating');
+      unitForm.requestSubmit();
+    };
+    age?.addEventListener('change',submitUnit);
+    sort?.addEventListener('change',submitUnit);
+    search?.addEventListener('input',()=>{
+      clearTimeout(unitTimer);
+      unitTimer=setTimeout(submitUnit,420);
+    });
+    search?.addEventListener('keydown',event=>{
+      if(event.key==='Enter'){event.preventDefault();clearTimeout(unitTimer);submitUnit()}
+      if(event.key==='Escape'){search.value='';clearTimeout(unitTimer);submitUnit()}
+    });
+    bandButtons.forEach(button=>button.addEventListener('click',()=>{
+      if(age)age.value=button.dataset.unitBand||'all';
+      submitUnit();
+    }));
+  }
 })();
 
 window._agingCharts=[];

@@ -1,16 +1,23 @@
-# SCM Inventory & Distribution Planning Control Tower — v2.47.0
+# SCM Inventory & Distribution Planning Control Tower — v2.47.1
 
-## v2.47.0 Motorcycle Aging UX
+## v2.47.1 Motorcycle Aging Traceability + Export
 
 The Motorcycle Aging workspace now uses an explicit risk-first workflow. Model-Level Intelligence defaults to **91+ Units · Highest → Lowest**, provides a visible Highest/Lowest direction control, sort-by selector, model search, quick views for Risk First / Capital Risk / Oldest First, live row ranking, exposure badges, and a compact percentage meter. Area and Branch rankings show their rank order clearly, while the unit table includes an age-band legend without adding back redundant Age Group/Age Detail columns.
 
-## Current release: Universal Import + Dynamic KPI Periods
+## Runtime foundation: Universal Import + Dynamic KPI Periods
 
 v2.46.9 restores deployment-independent Unified Data Refresh behavior. A missing Vercel Blob store is no longer a normal import/save failure: Local and Render use writable filesystem state, while Vercel can operate with `/tmp` runtime fallback. Private Vercel Blob remains optional for durability across cold starts and redeployments.
 
 The KPI engine is now period-column dynamic. Add the next YTD or Weekly period to the right of the existing periods and the dashboard will capture it automatically when the date/value cells are valid. Excel serial dates and common text/formula dates are supported. The supplied `MC Dashbord IMPORT(6).xlsx` is bundled as the baseline for this release.
 
-See `RELEASE_NOTES_v2.47.0.md` for the Aging UX release and `VERCEL_DEPLOYMENT.md` for deployment guidance.
+
+### What changed in v2.47.1
+- Added Unit-Level Traceability filters: exact-unit search, aging-band filter, and operational sort options.
+- Added a professional multi-sheet Aging Excel export (Executive Summary, Model Intelligence, Unit Detail, Data Dictionary).
+- Added a global Light/Dark contrast guard so text, controls, semantic colors, tables, charts, and Brilliant4 logos remain readable in either theme.
+- Preserved v2.46.9 universal import behavior and dynamic YTD/Weekly KPI columns.
+
+See `RELEASE_NOTES_v2.47.1.md` for this release and `VERCEL_DEPLOYMENT.md` for deployment guidance.
 
 A unified local Flask control tower for:
 

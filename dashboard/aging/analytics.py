@@ -272,8 +272,11 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "aged_model_labels": [x for x, _ in sorted(aged_models.items(), key=lambda kv: kv[1], reverse=True)[:10]],
         "aged_model_values": [v for _, v in sorted(aged_models.items(), key=lambda kv: kv[1], reverse=True)[:10]],
         "area_ranking": area_ranking[:12],
+        "area_ranking_all": area_ranking,
         "branch_ranking": branch_ranking[:15],
+        "branch_ranking_all": branch_ranking,
         "model_summary": model_summary[:75],
+        "model_summary_all": model_summary,
         "model_risk_counts": {
             "High": model_risk_counts.get("High", 0),
             "Watch": model_risk_counts.get("Watch", 0),

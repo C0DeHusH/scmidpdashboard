@@ -1,0 +1,187 @@
+/* ============================================================================
+   SCM IDP Dashboard v2.47.1 · Theme Contrast & Readability Guard
+   Keeps text, controls, icons, logos, tables and status colors readable in
+   both Light and Dark mode without changing application/business logic.
+   ============================================================================ */
+
+:root{color-scheme:dark}
+html[data-theme="light"]{color-scheme:light}
+html[data-theme="dark"]{color-scheme:dark}
+
+/* Prevent utility colors inherited from older layouts from becoming low contrast. */
+html[data-theme="dark"] body{
+  color:var(--text,#f3f7fb)!important;
+}
+html[data-theme="dark"] [class*="text-slate-600"]{color:#9fb0c4!important}
+html[data-theme="dark"] [class*="text-slate-500"]{color:#aab9ca!important}
+html[data-theme="dark"] [class*="text-slate-400"]{color:#bdc9d8!important}
+html[data-theme="dark"] [class*="text-slate-300"]{color:#d7e1ec!important}
+html[data-theme="dark"] [class*="text-slate-200"]{color:#e6edf5!important}
+html[data-theme="dark"] [class*="text-slate-100"]{color:#f5f8fc!important}
+
+/* Light mode needs darker semantic colors than the Tailwind 300/400 palette. */
+html[data-theme="light"] [class*="text-blue-300"],
+html[data-theme="light"] [class*="text-blue-400"]{color:#1d4ed8!important}
+html[data-theme="light"] [class*="text-cyan-300"],
+html[data-theme="light"] [class*="text-cyan-400"]{color:#0369a1!important}
+html[data-theme="light"] [class*="text-sky-300"],
+html[data-theme="light"] [class*="text-sky-400"]{color:#0369a1!important}
+html[data-theme="light"] [class*="text-amber-300"],
+html[data-theme="light"] [class*="text-amber-400"]{color:#92400e!important}
+html[data-theme="light"] [class*="text-orange-300"],
+html[data-theme="light"] [class*="text-orange-400"]{color:#9a3412!important}
+html[data-theme="light"] [class*="text-rose-300"],
+html[data-theme="light"] [class*="text-rose-400"],
+html[data-theme="light"] [class*="text-red-300"],
+html[data-theme="light"] [class*="text-red-400"]{color:#be123c!important}
+html[data-theme="light"] [class*="text-emerald-300"],
+html[data-theme="light"] [class*="text-emerald-400"],
+html[data-theme="light"] [class*="text-green-300"],
+html[data-theme="light"] [class*="text-green-400"]{color:#047857!important}
+html[data-theme="light"] [class*="text-indigo-300"],
+html[data-theme="light"] [class*="text-indigo-400"]{color:#4338ca!important}
+
+/* Typography and focus visibility. */
+body,button,input,select,textarea{color:var(--text,#f3f7fb)}
+::placeholder{color:var(--muted2,#7188a0)!important;opacity:1}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{
+  outline:2px solid #60a5fa!important;
+  outline-offset:2px!important;
+}
+select option{background:var(--surface,#0a1628);color:var(--text,#f3f7fb)}
+html[data-theme="light"] select option{background:#fff;color:#13253a}
+
+/* Logos and images must never be inverted or faded by theme changes. */
+img{opacity:1!important;filter:none!important}
+.sidebar-logo-img,.sidebar-logo-mini,.mobile-command-bar img,.login-brand img{
+  background:#fff!important;
+  color:#0f172a!important;
+  filter:none!important;
+  opacity:1!important;
+}
+html[data-theme="dark"] .sidebar-logo-img,
+html[data-theme="dark"] .sidebar-logo-mini,
+html[data-theme="dark"] .mobile-command-bar img{
+  border-color:rgba(125,211,252,.28)!important;
+  box-shadow:0 6px 18px rgba(2,8,23,.26)!important;
+}
+html[data-theme="light"] .sidebar-logo-img,
+html[data-theme="light"] .sidebar-logo-mini,
+html[data-theme="light"] .mobile-command-bar img{
+  border-color:#c8def6!important;
+  box-shadow:0 5px 14px rgba(15,23,42,.08)!important;
+}
+
+/* Consistent surface/readability guards across the four main workspaces. */
+html[data-theme="dark"] .glass,
+html[data-theme="dark"] .theme-surface,
+html[data-theme="dark"] .table-card,
+html[data-theme="dark"] .chart-card{
+  color:#e8eff7;
+}
+html[data-theme="light"] .glass,
+html[data-theme="light"] .theme-surface,
+html[data-theme="light"] .table-card,
+html[data-theme="light"] .chart-card{
+  color:#18324d;
+}
+
+/* Tables: strong headers, legible secondary text, visible hover states. */
+html[data-theme="dark"] table th{color:#b9c8d9!important}
+html[data-theme="dark"] table td{color:#dce6f0}
+html[data-theme="dark"] table tbody tr:hover td{background-color:rgba(96,165,250,.065)}
+html[data-theme="light"] table th{color:#466887!important}
+html[data-theme="light"] table td{color:#244664}
+html[data-theme="light"] table tbody tr:hover td{background-color:#eef6ff!important}
+
+/* Modals, helper text and status messages. */
+html[data-theme="dark"] .modal-panel{color:#e8eff7}
+html[data-theme="light"] .modal-panel{color:#16324f!important;background:#fff!important}
+html[data-theme="light"] .modal-header{border-color:#d8e5f2!important}
+html[data-theme="light"] .dictionary-item{background:#f8fbff!important;border-color:#d9e7f4!important}
+html[data-theme="light"] .dictionary-item b{color:#173a5e!important}
+html[data-theme="light"] .dictionary-item span{color:#5d7894!important}
+
+/* Aging semantic states stay understandable in both modes. */
+html[data-theme="light"] body.aging-module .age-number-healthy{color:#047857!important;background:#ecfdf5!important;border-color:#a7f3d0!important}
+html[data-theme="light"] body.aging-module .age-number-warning{color:#92400e!important;background:#fffbeb!important;border-color:#fde68a!important}
+html[data-theme="light"] body.aging-module .age-number-high{color:#9a3412!important;background:#fff7ed!important;border-color:#fdba74!important}
+html[data-theme="light"] body.aging-module .age-number-critical{color:#be123c!important;background:#fff1f2!important;border-color:#fecdd3!important}
+html[data-theme="dark"] body.aging-module .age-number-healthy{color:#6ee7b7!important}
+html[data-theme="dark"] body.aging-module .age-number-warning{color:#fcd34d!important}
+html[data-theme="dark"] body.aging-module .age-number-high{color:#fdba74!important}
+html[data-theme="dark"] body.aging-module .age-number-critical{color:#fda4af!important}
+
+/* Unit-level controls added in v2.47.1. */
+.unit-trace-controls{
+  display:grid;
+  grid-template-columns:minmax(240px,1.25fr) minmax(160px,.65fr) minmax(190px,.75fr) auto;
+  gap:10px;
+  align-items:end;
+  padding:14px 16px;
+  border-top:1px solid var(--line-soft,rgba(255,255,255,.05));
+  border-bottom:1px solid var(--line-soft,rgba(255,255,255,.05));
+  background:rgba(2,6,23,.16);
+}
+.unit-trace-field>span,.unit-trace-actions>span{
+  display:block;margin:0 0 6px;font-size:9px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--muted2,#7690ab)
+}
+.unit-trace-search{position:relative}
+.unit-trace-search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--muted2,#7690ab);pointer-events:none}
+.unit-trace-search input,.unit-trace-field select{
+  width:100%;height:40px;border:1px solid var(--border,#1d3553);border-radius:11px;background:var(--surface3,#081425);color:var(--text,#f3f7fb);padding:0 11px;font-size:11px;font-weight:600;outline:none
+}
+.unit-trace-search input{padding-left:35px}
+.unit-trace-search input:focus,.unit-trace-field select:focus{border-color:#60a5fa;box-shadow:0 0 0 3px rgba(59,130,246,.12)}
+.unit-trace-actions>div{display:flex;gap:7px;align-items:center;min-height:40px}
+.unit-filter-reset{height:40px;padding-inline:12px}
+.unit-trace-status{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 16px;border-bottom:1px solid var(--line-soft,rgba(255,255,255,.05));font-size:10px;color:var(--muted,#a9bbcf);background:rgba(255,255,255,.012)
+}
+.unit-trace-status strong{color:var(--text,#f3f7fb)}
+.unit-band-chips{display:flex;gap:6px;flex-wrap:wrap}
+.unit-band-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border,#1d3553);border-radius:999px;padding:5px 8px;background:rgba(255,255,255,.02);color:var(--muted,#a9bbcf);font-size:8.5px;font-weight:800}
+.unit-band-chip b{color:var(--text,#f3f7fb);font-size:9px}
+.unit-band-chip.active{border-color:rgba(96,165,250,.35);background:rgba(59,130,246,.10);color:#93c5fd}
+.unit-table-scroll{max-height:720px;overflow:auto}
+.unit-table thead th{position:sticky;top:0;z-index:5;background:#07111f!important;box-shadow:0 1px 0 rgba(255,255,255,.08)}
+html[data-theme="light"] body.aging-module .unit-trace-controls{background:#f8fbff;border-color:#dbe8f5}
+html[data-theme="light"] body.aging-module .unit-trace-search input,
+html[data-theme="light"] body.aging-module .unit-trace-field select{background:#fff;color:#0b1f3a;border-color:#c7dcf4}
+html[data-theme="light"] body.aging-module .unit-trace-status{background:#fbfdff;border-color:#dbe8f5;color:#5b7895}
+html[data-theme="light"] body.aging-module .unit-trace-status strong{color:#173a5e}
+html[data-theme="light"] body.aging-module .unit-band-chip{background:#fff;border-color:#d5e4f2;color:#587695}
+html[data-theme="light"] body.aging-module .unit-band-chip b{color:#173a5e}
+html[data-theme="light"] body.aging-module .unit-band-chip.active{background:#eaf4ff;border-color:#bfdbfe;color:#1d4ed8}
+html[data-theme="light"] body.aging-module .unit-table thead th{background:#f5f9ff!important;box-shadow:0 1px 0 #d9e7f4}
+
+/* Export button hierarchy. */
+.aging-export-primary{gap:7px}
+.aging-export-primary svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+@media(max-width:1100px){.unit-trace-controls{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:720px){
+  .unit-trace-controls{grid-template-columns:1fr;padding:12px}
+  .unit-trace-status{padding:9px 12px}
+  .unit-trace-actions>div{flex-wrap:wrap}
+}
+
+@media(prefers-contrast:more){
+  :root{--border:#45617d;--muted:#c2cfdd;--muted2:#aab9ca}
+  html[data-theme="light"]{--border:#9bb8d4;--muted:#365c7d;--muted2:#4d6f8e}
+  button,input,select,textarea,.glass,.table-card,.chart-card{border-width:1.5px!important}
+}
+
+body.aging-module .age-number{
+  min-width:52px!important;
+  justify-content:center!important;
+  padding:4px 7px!important;
+  border:1px solid transparent!important;
+  border-radius:8px!important;
+  font-variant-numeric:tabular-nums;
+}
+html[data-theme="dark"] body.aging-module .age-number-healthy{background:rgba(16,185,129,.08)!important;border-color:rgba(52,211,153,.15)!important}
+html[data-theme="dark"] body.aging-module .age-number-warning{background:rgba(245,158,11,.08)!important;border-color:rgba(251,191,36,.17)!important}
+html[data-theme="dark"] body.aging-module .age-number-high{background:rgba(249,115,22,.08)!important;border-color:rgba(251,146,60,.17)!important}
+html[data-theme="dark"] body.aging-module .age-number-critical{background:rgba(244,63,94,.08)!important;border-color:rgba(251,113,133,.18)!important}
+.unit-trace-controls.is-updating{opacity:.72;pointer-events:none}

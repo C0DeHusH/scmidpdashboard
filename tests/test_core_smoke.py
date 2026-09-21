@@ -17,6 +17,7 @@ from dashboard.cloud_state import VercelBlobState
 from dashboard.metrics import DashboardStore, TARGET_KPIS
 from dashboard.xlsx_reader import XlsxReader
 from dashboard.xlsx_export import build_delivery_plan_xlsx
+from dashboard.aging.exporter import build_aging_report_xlsx
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -405,6 +406,53 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         # v2.46.7 keeps the Blob HTTP API directly, removing SDK-version coupling.
         self.assertNotIn('vercel>=', requirements.lower())
 
+
+    def test_aging_unit_traceability_has_filters_and_full_dataset_export(self):
+        template = (ROOT / "templates" / "aging" / "dashboard.html").read_text(encoding="utf-8")
+        routes = (ROOT / "dashboard" / "aging" / "routes.py").read_text(encoding="utf-8")
+        aging_js = (ROOT / "static" / "aging" / "js" / "app.js").read_text(encoding="utf-8")
+        for element_id in ["unitTrace", "unitTraceForm", "unitTraceSearch", "unitAgeFilter", "unitSortFilter"]:
+            self.assertEqual(template.count(f'id="{element_id}"'), 1, element_id)
+        self.assertIn('data-unit-band="critical"', template)
+        self.assertIn('Highest Value → Lowest', template)
+        self.assertIn('@aging_bp.get("/export.xlsx")', routes)
+        self.assertIn('apply_unit_filters(rows, unit_filters)', routes)
+        self.assertIn("unitForm.requestSubmit()", aging_js)
+
+    def test_aging_export_builds_professional_multisheet_workbook(self):
+        summary = {
+            "total_qty": 10, "total_value": 500000, "avg_age": 150, "aged_90": 5, "aged_90_pct": 50.0,
+            "aged_90_value": 250000, "aged_180": 3, "aged_365": 1, "healthy_qty": 5, "oldest": 430,
+            "branch_count": 2, "area_count": 1, "risk_level": "High", "risk_message": "Test exposure",
+            "detailed_bucket_labels": ["0-30 DAYS", "31-60 DAYS", "61-90 DAYS", "91-180 DAYS", "181-365 DAYS", "366+ DAYS"],
+            "detailed_bucket_values": [1, 2, 2, 2, 2, 1],
+            "top_area": {"name": "AREA I", "aged_90": 5, "aged_90_pct": 50, "aged_value": 250000, "oldest": 430, "branch_count": 2},
+            "top_branch": {"name": "BRANCH A", "area": "AREA I", "aged_90": 3, "aged_90_pct": 60, "aged_value": 150000, "oldest": 430},
+            "top_model": {"standard_description": "MODEL X", "aged_90": 4, "aged_90_pct": 80, "aged_value": 200000, "oldest": 430, "branch_count": 2, "area_count": 1},
+            "model_summary_all": [{"standard_description": "MODEL X", "risk_level": "High", "qty": 5, "avg_age": 220, "aged_90": 4, "aged_90_pct": 80, "aged_value": 200000, "oldest": 430, "branch_count": 2, "area_count": 1}],
+        }
+        units = [{"branch_name": "BRANCH A", "area": "AREA I", "standard_description": "MODEL X", "brand": "HONDA", "engine_no": "E1", "chassis": "C1", "created_on": "2025-07-18", "incoming_date": "2025-07-10", "age_days": 430, "qty": 1, "amount": 50000, "inventory_value": 50000, "location": "SHOWROOM", "barcode": "BC1"}]
+        payload = build_aging_report_xlsx(summary=summary, unit_rows=units, as_of="2026-09-21", basis="branch", filters={}, unit_filters={"age": "all", "sort": "oldest", "q": ""}, source_filename="MC.xlsx")
+        with zipfile.ZipFile(BytesIO(payload), "r") as archive:
+            self.assertIsNone(archive.testzip())
+            self.assertIn("xl/worksheets/sheet4.xml", archive.namelist())
+        with tempfile.NamedTemporaryFile(suffix=".xlsx") as temp:
+            temp.write(payload); temp.flush()
+            wb = load_workbook(temp.name, read_only=False)
+            self.assertEqual(wb.sheetnames, ["Executive Summary", "Model Intelligence", "Unit Detail", "Data Dictionary"])
+            self.assertEqual(wb["Model Intelligence"].freeze_panes, "C5")
+            self.assertEqual(wb["Unit Detail"].freeze_panes, "C6")
+            self.assertEqual(wb["Unit Detail"].auto_filter.ref, "A5:N6")
+            wb.close()
+
+    def test_theme_contrast_guard_is_loaded_for_main_aging_and_login(self):
+        guard = (ROOT / "static" / "css" / "v2471-theme-contrast.css").read_text(encoding="utf-8")
+        for rel in ["templates/index.html", "templates/aging/base.html", "templates/login.html"]:
+            self.assertIn("v2471-theme-contrast.css", (ROOT / rel).read_text(encoding="utf-8"), rel)
+        self.assertIn('html[data-theme="dark"] [class*="text-slate-600"]', guard)
+        self.assertIn('html[data-theme="light"] [class*="text-amber-300"]', guard)
+        self.assertIn('.sidebar-logo-img,.sidebar-logo-mini', guard)
+        self.assertIn('filter:none!important', guard)
 
 if __name__ == "__main__":
     unittest.main()

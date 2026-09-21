@@ -6,10 +6,11 @@ import os
 from datetime import date, datetime
 from pathlib import Path
 
-from flask import Blueprint, Response, flash, redirect, render_template, request, session, url_for
+from flask import Blueprint, Response, flash, redirect, render_template, request, send_file, session, url_for
 
 from .analytics import filter_options, filtered_dataset, summarize
 from .db import connect, init_db
+from .exporter import build_aging_report_xlsx
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATE_ROOT = Path(os.environ.get("SCM_DATA_DIR", str(PROJECT_ROOT / "uploads")))
@@ -72,6 +73,84 @@ def parse_as_of(value: str) -> date:
         return date.today()
 
 
+UNIT_AGE_BANDS = {"all", "healthy", "action", "high", "critical"}
+UNIT_SORTS = {"oldest", "newest", "value_desc", "value_asc", "branch", "model"}
+
+
+def get_unit_filters() -> dict[str, str]:
+    age = request.args.get("unit_age", "all").strip().lower()
+    sort = request.args.get("unit_sort", "oldest").strip().lower()
+    return {
+        "age": age if age in UNIT_AGE_BANDS else "all",
+        "sort": sort if sort in UNIT_SORTS else "oldest",
+        "q": request.args.get("unit_q", "").strip(),
+    }
+
+
+def _unit_query_match(row: dict, query: str) -> bool:
+    if not query:
+        return True
+    q = query.casefold()
+    fields = (
+        "branch_name", "area", "standard_description", "description", "brand",
+        "engine_no", "chassis", "barcode", "location",
+    )
+    return any(q in str(row.get(field) or "").casefold() for field in fields)
+
+
+def _unit_age_match(days: int, band: str) -> bool:
+    if band == "healthy":
+        return days <= 90
+    if band == "action":
+        return 91 <= days <= 180
+    if band == "high":
+        return 181 <= days <= 365
+    if band == "critical":
+        return days >= 366
+    return True
+
+
+def unit_band_counts(rows: list[dict], query: str = "") -> dict[str, int]:
+    counts = {"all": 0, "healthy": 0, "action": 0, "high": 0, "critical": 0}
+    for row in rows:
+        if not _unit_query_match(row, query):
+            continue
+        days = int(row.get("age_days") or 0)
+        counts["all"] += 1
+        if days <= 90:
+            counts["healthy"] += 1
+        elif days <= 180:
+            counts["action"] += 1
+        elif days <= 365:
+            counts["high"] += 1
+        else:
+            counts["critical"] += 1
+    return counts
+
+
+def apply_unit_filters(rows: list[dict], unit_filters: dict[str, str]) -> list[dict]:
+    band = unit_filters.get("age", "all")
+    query = unit_filters.get("q", "")
+    filtered = [
+        row for row in rows
+        if _unit_query_match(row, query) and _unit_age_match(int(row.get("age_days") or 0), band)
+    ]
+    sort_mode = unit_filters.get("sort", "oldest")
+    if sort_mode == "newest":
+        filtered.sort(key=lambda r: (int(r.get("age_days") or 0), str(r.get("standard_description") or "").casefold()))
+    elif sort_mode == "value_desc":
+        filtered.sort(key=lambda r: (float(r.get("inventory_value") or 0), int(r.get("age_days") or 0)), reverse=True)
+    elif sort_mode == "value_asc":
+        filtered.sort(key=lambda r: (float(r.get("inventory_value") or 0), int(r.get("age_days") or 0)))
+    elif sort_mode == "branch":
+        filtered.sort(key=lambda r: (str(r.get("branch_name") or "").casefold(), -int(r.get("age_days") or 0)))
+    elif sort_mode == "model":
+        filtered.sort(key=lambda r: (str(r.get("standard_description") or "").casefold(), -int(r.get("age_days") or 0)))
+    else:
+        filtered.sort(key=lambda r: (int(r.get("age_days") or 0), float(r.get("inventory_value") or 0)), reverse=True)
+    return filtered
+
+
 @aging_bp.get("/")
 def dashboard():
     filters = get_filters()
@@ -86,7 +165,10 @@ def dashboard():
         filters["branch"] = ""
     rows = filtered_dataset(filters, as_of, basis)
     summary = summarize(rows)
-    display_rows = sorted(rows, key=lambda r: r["age_days"], reverse=True)[:250]
+    unit_filters = get_unit_filters()
+    band_counts = unit_band_counts(rows, unit_filters.get("q", ""))
+    unit_rows = apply_unit_filters(rows, unit_filters)
+    display_rows = unit_rows[:250]
     with connect() as conn:
         latest_import = conn.execute("SELECT * FROM imports ORDER BY id DESC LIMIT 1").fetchone()
     return render_template(
@@ -99,6 +181,9 @@ def dashboard():
         as_of=as_of.isoformat(),
         basis=basis,
         latest_import=latest_import,
+        unit_filters=unit_filters,
+        unit_row_count=len(unit_rows),
+        unit_band_counts=band_counts,
         role="admin" if _is_admin() else "guest",
     )
 
@@ -125,6 +210,7 @@ def export_csv():
     as_of = parse_as_of(as_of_str)
     basis = request.args.get("basis", "branch")
     rows = filtered_dataset(filters, as_of, basis)
+    rows = apply_unit_filters(rows, get_unit_filters())
     sio = io.StringIO()
     writer = csv.writer(sio)
     writer.writerow([
@@ -143,6 +229,41 @@ def export_csv():
         sio.getvalue(),
         mimetype="text/csv",
         headers={"Content-Disposition": f"attachment; filename=motorcycle_aging_{as_of.isoformat()}.csv"},
+    )
+
+
+@aging_bp.get("/export.xlsx")
+def export_xlsx():
+    filters = get_filters()
+    unit_filters = get_unit_filters()
+    as_of_str = request.args.get("as_of") or current_as_of()
+    as_of = parse_as_of(as_of_str)
+    basis = request.args.get("basis", "branch")
+    if basis not in {"branch", "company"}:
+        basis = "branch"
+
+    rows = filtered_dataset(filters, as_of, basis)
+    summary = summarize(rows)
+    unit_rows = apply_unit_filters(rows, unit_filters)
+    with connect() as conn:
+        latest_import = conn.execute("SELECT * FROM imports ORDER BY id DESC LIMIT 1").fetchone()
+    source_filename = latest_import["filename"] if latest_import else ""
+    payload = build_aging_report_xlsx(
+        summary=summary,
+        unit_rows=unit_rows,
+        as_of=as_of.isoformat(),
+        basis=basis,
+        filters=filters,
+        unit_filters=unit_filters,
+        source_filename=source_filename,
+    )
+    filename = f"Motorcycle_Aging_Intelligence_{as_of.isoformat()}.xlsx"
+    return send_file(
+        io.BytesIO(payload),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+        max_age=0,
     )
 
 
