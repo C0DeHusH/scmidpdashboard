@@ -1,22 +1,16 @@
+# SCM Inventory & Distribution Planning Control Tower — v2.47.0
 
-## Vercel production readiness
+## v2.47.0 Motorcycle Aging UX
 
-Online Admin imports require **both** a stable Admin signing key and durable Blob storage.
+The Motorcycle Aging workspace now uses an explicit risk-first workflow. Model-Level Intelligence defaults to **91+ Units · Highest → Lowest**, provides a visible Highest/Lowest direction control, sort-by selector, model search, quick views for Risk First / Capital Risk / Oldest First, live row ranking, exposure badges, and a compact percentage meter. Area and Branch rankings show their rank order clearly, while the unit table includes an age-band legend without adding back redundant Age Group/Age Detail columns.
 
-1. Set `SCM_SECRET_KEY` and `SCM_ADMIN_PASSWORD` in **Vercel Project Settings → Environment Variables** for the environment you deploy (Production and Preview if both are used).
-2. In **Project → Storage**, create or connect a **Vercel Blob** store to that same project/environment, then redeploy. An OIDC token alone does not mean Blob storage is connected.
-3. Open `/health`. A ready deployment must report `serverless_session_ready: true`, `blob_store_id_present: true`, and `persistent_storage: true`.
+## Current release: Universal Import + Dynamic KPI Periods
 
-v2.46.7 deliberately blocks Admin writes instead of accepting a fragile serverless login or pretending an ephemeral `/tmp` save is durable.
+v2.46.9 restores deployment-independent Unified Data Refresh behavior. A missing Vercel Blob store is no longer a normal import/save failure: Local and Render use writable filesystem state, while Vercel can operate with `/tmp` runtime fallback. Private Vercel Blob remains optional for durability across cold starts and redeployments.
 
-> **Current release:** v2.46.7 — Vercel Import/OIDC Fix. See `RELEASE_NOTES_v2.46.7.md`.
+The KPI engine is now period-column dynamic. Add the next YTD or Weekly period to the right of the existing periods and the dashboard will capture it automatically when the date/value cells are valid. Excel serial dates and common text/formula dates are supported. The supplied `MC Dashbord IMPORT(6).xlsx` is bundled as the baseline for this release.
 
-> **v2.46.3:** Unified Data Refresh recovery release. Imports are now fully preflighted before commit, tolerate harmless worksheet/header placement differences, preserve prior data transactionally, and always return a readable stage/reference when an import cannot be completed.
->
-> **v2.46.2:** Admin access reliability release. Management Order Plan, Branch Request Simulator, Delivery Plan, Data Operations, and Aging Admin actions use an application-specific session cookie, durable local signing key, explicit browser credentials, and automatic re-authentication handling.
-
-# SCM Inventory & Distribution Planning Control Tower — v2.46.7
-
+See `RELEASE_NOTES_v2.47.0.md` for the Aging UX release and `VERCEL_DEPLOYMENT.md` for deployment guidance.
 
 A unified local Flask control tower for:
 
@@ -55,7 +49,7 @@ There is **no Supabase requirement** and **no separate Aging import**.
 - Global cleared/no-data marker: `uploads/.scm_no_data`
 - Generated exports are built on demand and downloaded; they are not archived by the app.
 
-## v2.46.7 Vercel import + persistence
+## Historical v2.46.7 Vercel import + persistence
 
 Vercel deployments always use the system temporary area for workbook/SQLite processing, regardless of any stale `SCM_DATA_DIR` value left in project settings. Durable state remains in **Private Vercel Blob**. v2.46.7 supports both the current per-request Vercel OIDC model (`x-vercel-oidc-token` + `BLOB_STORE_ID`) and older `BLOB_READ_WRITE_TOKEN` connections. OIDC-only stores hydrate lazily on the first request, then the Unified Import verifies Blob write/read access before touching the active dashboard state.
 

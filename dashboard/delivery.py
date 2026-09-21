@@ -218,19 +218,19 @@ class DeliveryStore:
             self._save_schedule()
 
     def _atomic_write_json(self, path: Path, payload: Any) -> None:
-        """Persist JSON locally and, when configured, to durable cloud state.
+        """Commit JSON to writable runtime state, then mirror it when configured.
 
-        The cloud callback receives the exact serialized bytes *before* the local
-        replace.  On Vercel the local path is disposable ``/tmp`` working state,
-        while the callback is the durable source of truth.
+        Local/runtime persistence is intentionally committed first so a cloud
+        provider outage never discards a valid user edit in universal fallback
+        mode. The callback may still raise in explicitly configured strict mode.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
         serialized = json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
-        if self._persist_callback is not None:
-            self._persist_callback(path, serialized)
         tmp = path.with_name(f".{path.name}.tmp")
         tmp.write_bytes(serialized)
         tmp.replace(path)
+        if self._persist_callback is not None:
+            self._persist_callback(path, serialized)
 
     def _save_master(self) -> None:
         self._atomic_write_json(self.master_path, self.master)

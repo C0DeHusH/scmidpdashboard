@@ -49,6 +49,24 @@
   </div>
 </section>
 
+<section class="aging-reading-guide mt-4" aria-label="How to interpret aging">
+  <div class="aging-reading-guide-head">
+    <div><div class="eyebrow">How to Read Aging</div><h3>Follow the risk from exposure to action</h3></div>
+    <div class="aging-band-legend" aria-label="Age day legend">
+      <span class="aging-band healthy"><i></i>≤90 Healthy</span>
+      <span class="aging-band action"><i></i>91–180 Action</span>
+      <span class="aging-band high"><i></i>181–365 High</span>
+      <span class="aging-band critical"><i></i>366+ Critical</span>
+    </div>
+  </div>
+  <div class="aging-reading-steps">
+    <div><b>1</b><span><strong>Measure exposure</strong><small>Start with 91+ units and aged capital.</small></span></div>
+    <div><b>2</b><span><strong>Find concentration</strong><small>Use Area and Branch ranking to locate the inventory.</small></span></div>
+    <div><b>3</b><span><strong>Prioritize models</strong><small>Sort Highest → Lowest in Model-Level Intelligence.</small></span></div>
+    <div><b>4</b><span><strong>Trace exact units</strong><small>Review oldest Engine/Chassis records for execution.</small></span></div>
+  </div>
+</section>
+
 <section class="priority-grid mt-6">
   <article class="priority-card priority-area">
     <div class="priority-head"><span>01</span><div class="eyebrow">Area Priority</div></div>
@@ -155,77 +173,137 @@
 </section>
 
 <section class="mt-6 grid gap-4 xl:grid-cols-2">
-  <article class="glass table-card">
-    <div class="table-card-head"><div><div class="eyebrow">Area Interpretation</div><h2>Area Aging Risk Ranking</h2><p>Compares actual 91+ exposure and capital tied up by Area.</p></div><span class="data-chip">Top 12</span></div>
+  <article class="glass table-card ranking-card">
+    <div class="table-card-head"><div><div class="eyebrow">Area Interpretation</div><h2>Area Aging Risk Ranking</h2><p>Compares actual 91+ exposure and capital tied up by Area.</p></div><div class="table-head-right"><span class="data-chip risk-first-chip">Highest 91+ first</span><span class="data-chip">Top 12</span></div></div>
     <div class="overflow-x-auto">
-      <table class="data-table min-w-[760px] w-full text-left text-xs">
-        <thead><tr><th>Area</th><th class="text-right">Units</th><th class="text-right">91+ Units</th><th class="text-right">91+ %</th><th class="text-right">Aged Value</th><th class="text-right">Oldest</th></tr></thead>
+      <table class="data-table min-w-[800px] w-full text-left text-xs">
+        <thead><tr><th class="rank-col">#</th><th>Area</th><th class="text-right">Units</th><th class="text-right">91+ Units</th><th class="text-right">91+ %</th><th class="text-right">Aged Value</th><th class="text-right">Oldest</th></tr></thead>
         <tbody>{% for x in summary.area_ranking %}<tr>
-          <td class="font-semibold text-slate-100">{{ x.name }}</td><td class="text-right">{{ x.qty|qty }}</td>
+          <td class="rank-col"><span class="ranking-number">{{ loop.index }}</span></td><td class="font-semibold text-slate-100">{{ x.name }}</td><td class="text-right">{{ x.qty|qty }}</td>
           <td class="text-right text-amber-300 font-semibold">{{ x.aged_90|qty }}</td>
           <td class="text-right"><span class="ratio-badge {% if x.aged_90_pct>=40 %}ratio-high{% endif %}">{{ '%.1f'|format(x.aged_90_pct) }}%</span></td>
           <td class="text-right">{{ x.aged_value|money }}</td><td class="text-right {% if x.oldest>365 %}text-rose-300{% endif %}">{{ x.oldest|qty }} d</td>
-        </tr>{% else %}<tr><td colspan="6" class="py-12 text-center text-slate-500">No area data.</td></tr>{% endfor %}</tbody>
+        </tr>{% else %}<tr><td colspan="7" class="py-12 text-center text-slate-500">No area data.</td></tr>{% endfor %}</tbody>
       </table>
     </div>
   </article>
-  <article class="glass table-card">
-    <div class="table-card-head"><div><div class="eyebrow">Branch Interpretation</div><h2>Branch Aging Risk Ranking</h2><p>Pinpoints branches holding the largest quantities of aged units.</p></div><span class="data-chip">Top 15</span></div>
+  <article class="glass table-card ranking-card">
+    <div class="table-card-head"><div><div class="eyebrow">Branch Interpretation</div><h2>Branch Aging Risk Ranking</h2><p>Pinpoints branches holding the largest quantities of aged units.</p></div><div class="table-head-right"><span class="data-chip risk-first-chip">Highest 91+ first</span><span class="data-chip">Top 15</span></div></div>
     <div class="overflow-x-auto">
-      <table class="data-table min-w-[820px] w-full text-left text-xs">
-        <thead><tr><th>Branch</th><th>Area</th><th class="text-right">91+ Units</th><th class="text-right">91+ %</th><th class="text-right">Aged Value</th><th class="text-right">Oldest</th></tr></thead>
+      <table class="data-table min-w-[860px] w-full text-left text-xs">
+        <thead><tr><th class="rank-col">#</th><th>Branch</th><th>Area</th><th class="text-right">91+ Units</th><th class="text-right">91+ %</th><th class="text-right">Aged Value</th><th class="text-right">Oldest</th></tr></thead>
         <tbody>{% for x in summary.branch_ranking %}<tr>
-          <td class="font-semibold text-slate-100">{{ x.name }}</td><td><span class="pill">{{ x.area }}</span></td>
+          <td class="rank-col"><span class="ranking-number">{{ loop.index }}</span></td><td class="font-semibold text-slate-100">{{ x.name }}</td><td><span class="pill">{{ x.area }}</span></td>
           <td class="text-right text-amber-300 font-semibold">{{ x.aged_90|qty }}</td>
           <td class="text-right"><span class="ratio-badge {% if x.aged_90_pct>=40 %}ratio-high{% endif %}">{{ '%.1f'|format(x.aged_90_pct) }}%</span></td>
           <td class="text-right">{{ x.aged_value|money }}</td><td class="text-right {% if x.oldest>365 %}text-rose-300{% endif %}">{{ x.oldest|qty }} d</td>
-        </tr>{% else %}<tr><td colspan="6" class="py-12 text-center text-slate-500">No branch data.</td></tr>{% endfor %}</tbody>
+        </tr>{% else %}<tr><td colspan="7" class="py-12 text-center text-slate-500">No branch data.</td></tr>{% endfor %}</tbody>
       </table>
     </div>
   </article>
 </section>
 
-<section class="glass table-card mt-6">
-  <div class="table-card-head">
-    <div><div class="eyebrow">Model-Level Intelligence</div><h2>Standard Description Aging Summary</h2><p>Prioritize models using 91+ unit exposure, percentage aged, aged capital, and oldest unit.</p></div>
-    <div class="table-head-right"><span class="data-chip sort-hint-chip">Click any column to sort ↑↓</span><span class="data-chip">Top 75 models</span></div>
+<section class="glass table-card mt-6 model-intelligence-card">
+  <div class="table-card-head model-intelligence-head">
+    <div>
+      <div class="eyebrow">Model-Level Intelligence</div>
+      <h2>Standard Description Aging Summary</h2>
+      <p>Use the controls below to immediately surface the biggest aging exposure. Numeric columns open Highest → Lowest first.</p>
+    </div>
+    <div class="model-risk-summary" aria-label="Model exposure counts">
+      <span class="risk-count risk-count-high"><b>{{ summary.model_risk_counts.High }}</b> High</span>
+      <span class="risk-count risk-count-watch"><b>{{ summary.model_risk_counts.Watch }}</b> Watch</span>
+      <span class="risk-count risk-count-controlled"><b>{{ summary.model_risk_counts.Controlled }}</b> Controlled</span>
+    </div>
   </div>
-  <div class="overflow-x-auto">
-    <table id="modelAgingSummaryTable" class="data-table sortable-data-table min-w-[1200px] w-full text-left text-xs" data-sortable-model-summary>
+
+  <div class="model-table-controls" data-model-table-controls>
+    <label class="model-table-search">
+      <span>Find model</span>
+      <div class="model-table-search-input">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4" stroke-linecap="round"/></svg>
+        <input id="modelTableSearch" type="search" autocomplete="off" placeholder="Type model description…">
+      </div>
+    </label>
+    <label class="model-sort-select">
+      <span>Sort by</span>
+      <select id="modelSortField" aria-label="Sort models by">
+        <option value="aged90">91+ Units</option>
+        <option value="agedPct">91+ Percentage</option>
+        <option value="agedValue">Aged Value</option>
+        <option value="oldest">Oldest Unit</option>
+        <option value="avgAge">Average Age</option>
+        <option value="qty">Total Units</option>
+        <option value="risk">Exposure Level</option>
+        <option value="branches">Branches</option>
+        <option value="areas">Areas</option>
+        <option value="model">Standard Description</option>
+      </select>
+    </label>
+    <div class="model-sort-direction" role="group" aria-label="Sort direction">
+      <span>Direction</span>
+      <div class="sort-direction-buttons">
+        <button id="modelSortDesc" class="sort-direction-button active" type="button" aria-pressed="true">Highest → Lowest</button>
+        <button id="modelSortAsc" class="sort-direction-button" type="button" aria-pressed="false">Lowest → Highest</button>
+      </div>
+    </div>
+    <div class="model-sort-presets" aria-label="Quick sort presets">
+      <span>Quick view</span>
+      <div>
+        <button type="button" class="model-preset-button active" data-model-sort-preset="risk">Risk First</button>
+        <button type="button" class="model-preset-button" data-model-sort-preset="capital">Capital Risk</button>
+        <button type="button" class="model-preset-button" data-model-sort-preset="oldest">Oldest First</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="model-table-status">
+    <div><span class="status-dot"></span><strong id="modelVisibleCount">{{ summary.model_summary|length }} models shown</strong></div>
+    <span id="modelSortStatus" class="model-sort-status-chip">91+ Units · Highest → Lowest</span>
+    <span class="model-sort-help">Tip: click any column header to sort it directly.</span>
+  </div>
+
+  <div class="overflow-x-auto model-table-scroll">
+    <table id="modelAgingSummaryTable" class="data-table sortable-data-table model-aging-table min-w-[1460px] w-full text-left text-xs" data-sortable-model-summary>
       <thead><tr>
-        <th aria-sort="none"><button type="button" class="table-sort-button" data-sort-index="0" data-sort-type="text"><span>Standard Description</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
-        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="1" data-sort-type="number"><span>Units</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
-        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="2" data-sort-type="number"><span>Avg Age</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
-        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="3" data-sort-type="number"><span>91+ Units</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
-        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="4" data-sort-type="number"><span>91+ %</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
-        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="5" data-sort-type="number"><span>Aged Value</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
-        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="6" data-sort-type="number"><span>Oldest</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
-        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="7" data-sort-type="number"><span>Branches</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
-        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="8" data-sort-type="number"><span>Areas</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
+        <th class="rank-col sticky-rank">Rank</th>
+        <th class="sticky-model" aria-sort="none"><button type="button" class="table-sort-button" data-sort-index="1" data-sort-key="model" data-sort-type="text"><span>Standard Description</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
+        <th aria-sort="none"><button type="button" class="table-sort-button" data-sort-index="2" data-sort-key="risk" data-sort-type="number"><span>Exposure</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
+        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="3" data-sort-key="qty" data-sort-type="number"><span>Units</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
+        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="4" data-sort-key="avgAge" data-sort-type="number"><span>Avg Age</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
+        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="5" data-sort-key="aged90" data-sort-type="number"><span>91+ Units</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
+        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="6" data-sort-key="agedPct" data-sort-type="number"><span>91+ %</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
+        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="7" data-sort-key="agedValue" data-sort-type="number"><span>Aged Value</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
+        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="8" data-sort-key="oldest" data-sort-type="number"><span>Oldest</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
+        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="9" data-sort-key="branches" data-sort-type="number"><span>Branches</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
+        <th class="text-right" aria-sort="none"><button type="button" class="table-sort-button justify-end" data-sort-index="10" data-sort-key="areas" data-sort-type="number"><span>Areas</span><span class="sort-glyph" aria-hidden="true"><i class="sort-up"></i><i class="sort-down"></i></span></button></th>
       </tr></thead>
       <tbody>
         {% for m in summary.model_summary %}
-        <tr data-original-index="{{ loop.index0 }}">
-          <td class="font-semibold text-slate-200" data-sort-value="{{ m.standard_description|lower }}">{{ m.standard_description }}</td>
+        <tr data-original-index="{{ loop.index0 }}" data-model-name="{{ m.standard_description|lower }}">
+          <td class="rank-col sticky-rank"><span class="ranking-number model-rank">{{ loop.index }}</span></td>
+          <td class="font-semibold text-slate-200 sticky-model" data-sort-value="{{ m.standard_description|lower }}"><span class="model-name-cell">{{ m.standard_description }}</span></td>
+          <td data-sort-value="{{ m.risk_rank }}"><span class="model-risk-badge risk-{{ m.risk_level|lower }}">{{ m.risk_level }}</span></td>
           <td class="text-right" data-sort-value="{{ m.qty }}">{{ m.qty|qty }}</td>
           <td class="text-right" data-sort-value="{{ m.avg_age }}">{{ '%.0f'|format(m.avg_age) }} d</td>
           <td class="text-right {% if m.aged_90>0 %}text-amber-300 font-semibold{% endif %}" data-sort-value="{{ m.aged_90 }}">{{ m.aged_90|qty }}</td>
-          <td class="text-right" data-sort-value="{{ m.aged_90_pct }}"><span class="ratio-badge {% if m.aged_90_pct>=40 %}ratio-high{% endif %}">{{ '%.1f'|format(m.aged_90_pct) }}%</span></td>
+          <td class="text-right" data-sort-value="{{ m.aged_90_pct }}"><div class="model-aging-percent"><span class="ratio-badge {% if m.aged_90_pct>=40 %}ratio-high{% endif %}">{{ '%.1f'|format(m.aged_90_pct) }}%</span><span class="model-aging-meter"><i style="width:{{ [m.aged_90_pct,100]|min }}%"></i></span></div></td>
           <td class="text-right" data-sort-value="{{ m.aged_value }}">{{ m.aged_value|money }}</td>
           <td class="text-right {% if m.oldest>365 %}text-rose-300 font-semibold{% endif %}" data-sort-value="{{ m.oldest }}">{{ m.oldest|qty }} d</td>
           <td class="text-right" data-sort-value="{{ m.branch_count }}">{{ m.branch_count }}</td>
           <td class="text-right" data-sort-value="{{ m.area_count }}">{{ m.area_count }}</td>
         </tr>
-        {% else %}<tr><td colspan="9" class="py-14 text-center text-slate-500">No model aging data in the current filter.</td></tr>{% endfor %}
+        {% else %}<tr><td colspan="11" class="py-14 text-center text-slate-500">No model aging data in the current filter.</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>
+  <div id="modelNoResults" class="model-no-results hidden">No model matches your table search. Clear the search to show all models again.</div>
 </section>
 
 <section class="glass table-card mt-6">
   <div class="table-card-head">
     <div><div class="eyebrow">Unit-Level Traceability</div><h2>Oldest Units First</h2><p>Clean operational view showing the exact age in days without redundant age-group columns.</p></div>
-    <div class="table-head-right"><button type="button" class="btn-secondary" data-open-column-guide>Column Guide</button><span class="data-chip">Top 250 rows</span></div>
+    <div class="table-head-right"><div class="aging-band-legend compact"><span class="aging-band healthy"><i></i>≤90</span><span class="aging-band action"><i></i>91–180</span><span class="aging-band high"><i></i>181–365</span><span class="aging-band critical"><i></i>366+</span></div><button type="button" class="btn-secondary" data-open-column-guide>Column Guide</button><span class="data-chip">Top 250 rows</span></div>
   </div>
   <div class="overflow-x-auto">
     <table class="data-table unit-table min-w-[1500px] w-full text-left text-xs">
@@ -236,7 +314,7 @@
           <td><div class="font-semibold text-slate-100">{{ r.branch_name }}</div></td><td><span class="pill {% if r.area=='UNMAPPED' %}pill-muted{% endif %}">{{ r.area }}</span></td>
           <td class="max-w-[330px]"><div class="font-medium text-slate-200">{{ r.standard_description }}</div><div class="truncate text-[10px] text-slate-600">{{ r.description }}</div></td>
           <td><span class="brand-text">{{ r.brand or '—' }}</span></td><td class="mono-cell">{{ r.engine_no or '—' }}</td><td class="mono-cell">{{ r.chassis or '—' }}</td><td>{{ r.created_on or '—' }}</td><td>{{ r.incoming_date or '—' }}</td>
-          <td class="text-right"><span class="age-number {% if r.age_days>365 %}age-number-critical{% elif r.age_days>90 %}age-number-warning{% endif %}">{{ r.age_days|qty }}</span></td>
+          <td class="text-right"><span class="age-number {% if r.age_days>365 %}age-number-critical{% elif r.age_days>180 %}age-number-high{% elif r.age_days>90 %}age-number-warning{% else %}age-number-healthy{% endif %}">{{ r.age_days|qty }}</span></td>
           <td class="text-right font-semibold text-slate-200">{{ r.qty|qty }}</td><td class="text-right font-medium text-slate-200">{{ r.inventory_value|money }}</td><td>{{ r.location or '—' }}</td>
         </tr>
         {% else %}<tr><td colspan="12" class="py-16 text-center text-slate-500">No aging data found. Import the Excel file or adjust the filters.</td></tr>{% endfor %}

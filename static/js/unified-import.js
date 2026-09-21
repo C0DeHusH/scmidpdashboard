@@ -70,7 +70,7 @@
     xhr.upload.onprogress=e=>{if(e.lengthComputable){const uploadPct=Math.min(34,10+(e.loaded/e.total)*24);setProgress(uploadPct,'Uploading workbook','Secure upload in progress…')}};
     xhr.upload.onload=()=>{
       let synthetic=36;setProgress(synthetic,'Validating workbook','Checking workbook structure before any live data is changed…');
-      phaseTimer=setInterval(()=>{synthetic=Math.min(88,synthetic+4);let label='Staging control-tower data',detail='Parsing inventory, KPI and management intelligence safely in memory…';if(synthetic>=60){label='Refreshing Motorcycle Aging';detail='Mapping Aging branches to the Raw Branch/Area master and recalculating age exposure…'}if(synthetic>=78){label='Committing unified refresh';detail='Creating rollback snapshots and persisting the validated revision to durable storage…'}setProgress(synthetic,label,detail)},420);
+      phaseTimer=setInterval(()=>{synthetic=Math.min(88,synthetic+4);let label='Staging control-tower data',detail='Parsing inventory, KPI and management intelligence safely in memory…';if(synthetic>=60){label='Refreshing Motorcycle Aging';detail='Mapping Aging branches to the Raw Branch/Area master and recalculating age exposure…'}if(synthetic>=78){label='Committing unified refresh';detail='Creating rollback snapshots and activating the validated dashboard revision…'}setProgress(synthetic,label,detail)},420);
     };
     xhr.onload=()=>{
       if(phaseTimer)clearInterval(phaseTimer);phaseTimer=null;
@@ -83,8 +83,12 @@
         result.hidden=false;result.className='unified-import-result is-error';
         result.innerHTML=`<b>Refresh stopped safely.</b><span>${escapeHtml(detail)}</span>`;return
       }
-      const a=data.modules?.aging||{};setProgress(100,'All modules refreshed',`Executive, Management and Motorcycle Aging are aligned. ${data.reference?`Reference: ${data.reference}`:''}`);
-      result.hidden=false;result.className='unified-import-result is-success';result.innerHTML=`<div><b>Unified refresh complete</b><span>${Number(a.rows||0).toLocaleString()} aging units · ${Number(a.branches||0).toLocaleString()} branches · ${Number(a.areas||0).toLocaleString()} areas · As of ${escapeHtml(a.as_of_date||'—')}${data.reference?` · ${escapeHtml(data.reference)}`:''}</span></div><span class="result-check">✓</span>`;
+      const a=data.modules?.aging||{};const k=data.modules?.kpi||{};const warnings=Array.isArray(data.warnings)?data.warnings:[];const persistence=data.persistence||{};
+      const persistenceNote=persistence.mode==='runtime-fallback'?' · Runtime mode':(persistence.mode==='durable-cloud'?' · Cloud-synced':'');
+      const kpiNote=` · KPI YTD ${Number(k.ytd_periods||0)} / Weekly ${Number(k.weekly_periods||0)}`;
+      setProgress(100,'All modules refreshed',`Executive, KPI, Management and Motorcycle Aging are aligned.${kpiNote}${persistenceNote} ${data.reference?`Reference: ${data.reference}`:''}`);
+      const warningNote=warnings.length?`<small class="result-warning">${escapeHtml(warnings[0])}</small>`:'';
+      result.hidden=false;result.className='unified-import-result is-success';result.innerHTML=`<div><b>Unified refresh complete</b><span>${Number(a.rows||0).toLocaleString()} aging units · ${Number(a.branches||0).toLocaleString()} branches · ${Number(a.areas||0).toLocaleString()} areas · KPI YTD ${Number(k.ytd_periods||0)} / Weekly ${Number(k.weekly_periods||0)} · As of ${escapeHtml(a.as_of_date||'—')}${persistenceNote}${data.reference?` · ${escapeHtml(data.reference)}`:''}</span>${warningNote}</div><span class="result-check">✓</span>`;
       submit.textContent='Refreshing View…';
       window.setTimeout(()=>{const u=new URL(window.location.href);u.searchParams.delete('open_import');window.location.replace(u.pathname+u.search+u.hash)},850);
     };

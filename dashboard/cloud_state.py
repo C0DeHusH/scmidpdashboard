@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Durable Vercel Blob state for the SCM dashboard.
 
-v2.46.7 deliberately does not depend on a particular Vercel Python SDK release.
+v2.46.9 deliberately does not depend on a particular Vercel Python SDK release.
 It speaks to the documented Blob HTTP API directly so both authentication models
 work reliably:
 
@@ -48,7 +48,13 @@ class VercelBlobState:
         self.env_oidc_token = str(os.environ.get("VERCEL_OIDC_TOKEN") or "").strip()
         self.store_id = self._normalize_store_id(str(os.environ.get("BLOB_STORE_ID") or "").strip())
         self.prefix = str(os.environ.get("SCM_BLOB_PREFIX") or "scm-idp-dashboard").strip().strip("/")
-        self.allow_ephemeral = str(os.environ.get("SCM_ALLOW_EPHEMERAL_VERCEL") or "0").strip() == "1"
+        # v2.46.9 universal-runtime policy: external cloud persistence must never
+        # be a prerequisite for a valid workbook import or operational save.
+        # Vercel Blob remains an automatic optional mirror when connected. Legacy
+        # strict-storage environment flags are intentionally ignored so an old
+        # deployment setting cannot reintroduce the BLOB_STORE_ID import failure.
+        self.require_durable = False
+        self.allow_ephemeral = True
         self.api_url = str(os.environ.get("VERCEL_BLOB_API_URL") or "https://vercel.com/api/blob").rstrip("/")
         self._request_oidc: ContextVar[str] = ContextVar("scm_vercel_oidc_token", default="")
         self.last_error = ""
@@ -109,7 +115,15 @@ class VercelBlobState:
 
     @property
     def durable_required(self) -> bool:
-        return self.is_vercel and not self.allow_ephemeral
+        return self.is_vercel and self.require_durable
+
+    @property
+    def persistence_mode(self) -> str:
+        if not self.is_vercel:
+            return "local-filesystem"
+        if self.enabled:
+            return "durable-cloud"
+        return "runtime-fallback"
 
     def status(self) -> CloudStatus:
         if not self.is_vercel:
@@ -122,14 +136,25 @@ class VercelBlobState:
             else:
                 detail += " (read-write token)"
             return CloudStatus("vercel", True, "vercel-blob-private", detail, mode)
-        if self.allow_ephemeral:
-            return CloudStatus("vercel", False, "ephemeral-/tmp", "Ephemeral Vercel mode explicitly enabled", "ephemeral")
+
+        # Universal compatibility mode: lack of Blob is no longer an import/save
+        # error. The dashboard uses Vercel's writable /tmp runtime state and keeps
+        # all analytical modules operational. This is intentionally non-durable
+        # across cold starts/redeployments, so /health exposes a warning instead of
+        # marking the deployment broken.
+        if not self.require_durable:
+            detail = (
+                "Runtime storage fallback active. Imports and saves are available without a Blob store; "
+                "state can reset after a Vercel cold start or redeployment."
+            )
+            return CloudStatus("vercel", False, "vercel-runtime-fallback", detail, "runtime-fallback")
+
         if self.store_id and not (self.request_oidc_present or self.env_oidc_token or self.read_write_token):
             return CloudStatus(
                 "vercel",
                 False,
                 "vercel-blob-awaiting-oidc",
-                "Blob store is connected, but this request did not include a Vercel OIDC token.",
+                "Durable storage is required, but this request did not include a Vercel OIDC token.",
                 "none",
             )
         if (self.request_oidc_present or self.env_oidc_token) and not self.store_id and not self.read_write_token:
@@ -137,14 +162,14 @@ class VercelBlobState:
                 "vercel",
                 False,
                 "vercel-blob-missing-store-id",
-                "Vercel OIDC is active, but no Blob store is connected to this deployment (BLOB_STORE_ID is missing). In Vercel open this project > Storage, create or connect a Blob store for the current environment, then redeploy.",
+                "Durable storage is required but BLOB_STORE_ID is missing.",
                 "oidc-missing-store-id",
             )
         return CloudStatus(
             "vercel",
             False,
-            "not-configured",
-            "Connect a Private Vercel Blob store to this project. OIDC and legacy read-write tokens are both supported.",
+            "durable-storage-not-configured",
+            "Durable storage is required but no supported Blob credentials are configured.",
             "none",
         )
 

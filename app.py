@@ -30,13 +30,14 @@ from dashboard.cloud_state import VercelBlobState
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env")
 DATA_FILE = BASE / "data" / "MC_Dashboard_IMPORT.xlsx"
-APP_VERSION = "2.46.7"
+APP_VERSION = "2.47.0"
 IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
 
 # Vercel's deployed project filesystem is read-only except for the function's
-# disposable system temp area.  Always force runtime working state under /tmp on
-# Vercel, even if an older deployment still has SCM_DATA_DIR configured.  Durable
-# state lives in Private Vercel Blob; SCM_DATA_DIR remains supported on Local/Render.
+# writable system temp area. Runtime working state therefore lives under /tmp on
+# Vercel. v2.46.9 treats external Blob persistence as optional: when connected it
+# is used for cross-instance durability; when absent, imports/saves continue using
+# the runtime fallback instead of failing. SCM_DATA_DIR remains supported on Local/Render.
 if IS_VERCEL:
     os.environ["SCM_DATA_DIR"] = str(Path(tempfile.gettempdir()) / "scm-idp-dashboard")
 STATE_ROOT = Path(os.environ.get("SCM_DATA_DIR", str(BASE / "uploads")))
@@ -132,7 +133,7 @@ def _load_or_create_secret_key() -> str:
 
     A Vercel Function can be served by different isolated instances. A key generated
     on the local filesystem therefore cannot be trusted for Admin sessions online.
-    v2.46.7 treats that situation as an explicit deployment configuration error
+    v2.46.9 keeps that situation as an explicit session configuration error
     instead of allowing a login that later appears to "randomly" log out.
     """
     global SESSION_KEY_SOURCE
@@ -203,8 +204,23 @@ def _now_local() -> datetime:
 
 
 def _persist_small_state(path: Path, payload: bytes) -> None:
-    """Persist small mutable JSON state when a durable backend is configured."""
-    cloud_state.persist_named_file(STATE_ROOT, path, payload=payload)
+    """Best-effort cloud mirror for small mutable JSON state.
+
+    Local/runtime state is always the primary compatibility path. A transient or
+    misconfigured cloud backend must not turn a valid user save into an error
+    unless strict durable mode was explicitly requested.
+    """
+    global _cloud_runtime_error
+    if not cloud_state.enabled:
+        return
+    try:
+        cloud_state.persist_named_file(STATE_ROOT, path, payload=payload)
+        _cloud_runtime_error = ""
+    except Exception as exc:
+        _cloud_runtime_error = str(exc)
+        app.logger.warning("Optional cloud state mirror failed for %s", path, exc_info=True)
+        if cloud_state.durable_required:
+            raise
 
 
 store = DashboardStore(
@@ -236,22 +252,36 @@ def _json_payload() -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def _kpi_period_diagnostics() -> dict:
+    """Report how many imported period columns are active in each KPI view."""
+    ytd_counts = [len((payload.get("ytd") or {}).get("labels") or []) for payload in store.kpis.values()]
+    weekly_counts = [len((payload.get("weekly") or {}).get("labels") or []) for payload in store.kpis.values()]
+    ytd_labels = next(((payload.get("ytd") or {}).get("labels") or [] for payload in store.kpis.values() if (payload.get("ytd") or {}).get("labels")), [])
+    weekly_labels = next(((payload.get("weekly") or {}).get("labels") or [] for payload in store.kpis.values() if (payload.get("weekly") or {}).get("labels")), [])
+    return {
+        "ytd_periods": max(ytd_counts, default=0),
+        "weekly_periods": max(weekly_counts, default=0),
+        "latest_ytd": ytd_labels[-1] if ytd_labels else None,
+        "latest_weekly": weekly_labels[-1] if weekly_labels else None,
+    }
+
+
 def _send_bytes(payload: bytes, filename: str, mimetype: str):
     return send_file(BytesIO(payload), mimetype=mimetype, as_attachment=True, download_name=filename)
 
 
 def _persistent_storage_error(*, allow_recovery: bool = False):
-    """Return a precise error when a Vercel mutation would not be durable.
+    """Block mutations only when strict durable storage was explicitly required.
 
-    Unified Import may repair a stale/corrupt prior cloud revision, so it is
-    allowed past a hydration error when credentials are present. It immediately
-    performs a Blob write/read probe before touching active data.
+    v2.46.9 restores universal deployment compatibility: Local, Render and Vercel
+    can import/save without external storage. Vercel Blob is an optional durability
+    layer unless SCM_REQUIRE_DURABLE_STORAGE=1 is configured.
     """
-    if not IS_VERCEL or cloud_state.allow_ephemeral:
+    if not IS_VERCEL or not cloud_state.durable_required:
         return None
     if _cloud_runtime_error and not (allow_recovery and cloud_state.enabled):
         return jsonify({
-            "error": "Persistent Vercel Blob could not be initialized for this request.",
+            "error": "Strict durable storage could not be initialized for this request.",
             "detail": _cloud_runtime_error,
             "storage_required": True,
             "storage": cloud_state.status().provider,
@@ -338,7 +368,7 @@ def _bind_vercel_oidc_and_hydrate_runtime():
         return None
 
     cloud_state.bind_request_oidc(request.headers.get("x-vercel-oidc-token", ""))
-    if cloud_state.allow_ephemeral or not cloud_state.enabled:
+    if not cloud_state.enabled:
         return None
 
     # Ensure writes performed by DeliveryStore during this request are durable,
@@ -447,15 +477,15 @@ def _save_management_allocations(data):
     snapshot = deepcopy(data)
     serialized = json.dumps(snapshot, indent=2, sort_keys=True).encode("utf-8")
     with _management_lock:
-        # On Vercel, publish the durable copy first. The subsequent /tmp replace
-        # is only a working cache and must never be the sole saved copy.
-        if cloud_state.enabled:
-            cloud_state.persist_named_file(STATE_ROOT, MANAGEMENT_ALLOCATIONS, payload=serialized)
+        # Always commit the writable local/runtime copy first. Cloud persistence is
+        # an optional mirror so a storage-provider outage cannot break Order Plan.
         MANAGEMENT_ALLOCATIONS.parent.mkdir(parents=True, exist_ok=True)
         tmp = MANAGEMENT_ALLOCATIONS.with_suffix(".tmp")
         tmp.write_bytes(serialized)
         tmp.replace(MANAGEMENT_ALLOCATIONS)
         _management_allocations_cache = snapshot
+        if cloud_state.enabled:
+            _persist_small_state(MANAGEMENT_ALLOCATIONS, serialized)
 
 
 def _merge_management_edits(base: dict, incoming: dict, valid_keys: set[str]) -> tuple[dict, int]:
@@ -713,9 +743,11 @@ def api_model():
 def admin_import():
     """Transactionally refresh SCM, Management and Aging from one workbook.
 
-    v2.46.6 keeps the staged transaction while fixing Vercel OIDC, cold-start
-    hydration, and serverless temp-file handling. It verifies Blob read/write
-    access before parsing the workbook so configuration failures are explicit.
+    v2.46.9 makes deployment storage provider-independent. The workbook is
+    validated and committed to the writable runtime first. If durable cloud
+    storage is available it is mirrored as an additional layer; if it is absent
+    or temporarily unavailable, the import still completes in runtime-fallback
+    mode unless strict durable storage was explicitly requested.
     """
     global _management_allocations_cache, _cloud_runtime_error, _cloud_runtime_hydrated
 
@@ -725,6 +757,8 @@ def admin_import():
     active_backup: Path | None = None
     aging_backup: Path | None = None
     aging_cloud_snapshot: Path | None = None
+    warnings: list[str] = []
+    cloud_ready = bool(cloud_state.enabled)
 
     def fail(message: str, status: int = 400, *, error_stage: str | None = None):
         return jsonify({
@@ -735,26 +769,33 @@ def admin_import():
         }), status
 
     try:
+        # Only strict deployments block on missing external persistence. Normal
+        # deployments continue with the universal writable runtime fallback.
         storage_error = _persistent_storage_error(allow_recovery=True)
         if storage_error:
             response, status = storage_error
             payload = response.get_json(silent=True) or {}
             detail = str(payload.get("detail") or "").strip()
-            message = str(payload.get("error") or "Persistent storage is unavailable.")
+            message = str(payload.get("error") or "Strict durable storage is unavailable.")
             if detail and detail not in message:
                 message = f"{message} {detail}"
-            return fail(message, status, error_stage="checking Vercel storage")
+            return fail(message, status, error_stage="checking strict durable storage")
 
-        if IS_VERCEL and cloud_state.enabled:
-            stage = "verifying Vercel Blob persistence"
+        # Blob is an optional mirror in the standard deployment mode. Probe it
+        # when present, but never reject a valid workbook because a provider is
+        # missing or temporarily unavailable.
+        if IS_VERCEL and cloud_ready:
+            stage = "checking optional cloud persistence"
             try:
                 cloud_state.probe()
+                _cloud_runtime_error = ""
             except Exception as exc:
                 _write_import_error_log(reference, stage, exc)
-                return fail(
-                    f"Vercel Blob is connected but the dashboard cannot write/read it: {exc}",
-                    503,
-                )
+                _cloud_runtime_error = str(exc)
+                if cloud_state.durable_required:
+                    return fail(f"Strict durable storage check failed: {exc}", 503)
+                cloud_ready = False
+                warnings.append("Cloud persistence was unavailable, so this refresh was committed to the Vercel runtime fallback.")
 
         stage = "receiving upload"
         uploaded = request.files.get("file")
@@ -768,29 +809,26 @@ def admin_import():
             return fail(str(exc))
         except OSError as exc:
             _write_import_error_log(reference, stage, exc)
-            return fail(
-                f"The workbook could not be staged in the Vercel temporary upload area: {exc}",
-                500,
-            )
+            return fail(f"The workbook could not be staged in the writable runtime area: {exc}", 500)
 
         if not zipfile.is_zipfile(tmp):
             return fail("The selected file is not a valid .xlsx workbook. Re-save it as Excel Workbook (*.xlsx) and retry.")
 
         with _import_lock:
-            # Unique backup names eliminate collisions with stale files from a previous
-            # interrupted Windows session and make cleanup independent per request.
             token = reference.replace(":", "-")
             active_backup = UPLOAD_DIR / f".active_import_backup_{token}.xlsx"
             aging_backup = AGING_DB_PATH.with_name(f".aging_backup_{token}.db")
             aging_cloud_snapshot = AGING_DB_PATH.with_name(f".aging_cloud_{token}.db")
             previous_cloud_manifest = None
-            if cloud_state.enabled:
+            if cloud_ready:
                 try:
                     previous_cloud_manifest = cloud_state.get_json(cloud_state.core_manifest_key)
-                except Exception:
-                    # A damaged old manifest must not prevent a valid new Unified
-                    # Import from repairing the durable control-tower state.
+                except Exception as exc:
+                    _cloud_runtime_error = str(exc)
                     app.logger.warning("Previous cloud manifest could not be read during recovery import [%s]", reference, exc_info=True)
+                    # New cloud publication may still repair the manifest, so this
+                    # warning alone does not disable the mirror.
+                    warnings.append("The previous cloud revision could not be read; the new import will attempt to repair it.")
 
             stage = "validating SCM workbook"
             check = DashboardStore.validate(tmp)
@@ -803,9 +841,6 @@ def admin_import():
             except Exception as exc:
                 return fail(f"Aging validation failed: {exc}")
 
-            # Parse every SCM/KPI/Management dataset in memory before touching the live
-            # workbook or Aging database. This catches formula/header/data-shape issues
-            # while the previous state is still completely untouched.
             stage = "staging SCM, KPI and Management data"
             candidate_store = DashboardStore(None)
             try:
@@ -828,41 +863,59 @@ def admin_import():
                     backup_aging_database(aging_backup)
 
                 stage = "refreshing Motorcycle Aging"
-                aging_result = import_aging_excel(tmp, original_name, mode="replace", sheet_name=aging_preflight.get("sheet") or "Aging")
+                aging_result = import_aging_excel(
+                    tmp,
+                    original_name,
+                    mode="replace",
+                    sheet_name=aging_preflight.get("sheet") or "Aging",
+                )
                 aging_committed = True
 
-                # SQLite can keep recently committed pages in WAL. Create a consistent
-                # snapshot for durable cloud storage instead of copying the live DB file.
-                if cloud_state.enabled:
-                    stage = "creating durable Aging snapshot"
-                    backup_aging_database(aging_cloud_snapshot)
+                # A consistent SQLite snapshot is needed only when the optional
+                # cloud mirror is actually available for this request.
+                if cloud_ready:
+                    stage = "preparing optional cloud snapshot"
+                    try:
+                        backup_aging_database(aging_cloud_snapshot)
+                    except Exception as exc:
+                        _cloud_runtime_error = str(exc)
+                        if cloud_state.durable_required:
+                            raise
+                        app.logger.warning("Cloud Aging snapshot skipped [%s]", reference, exc_info=True)
+                        warnings.append("Cloud Aging snapshot was skipped; runtime data remains active.")
+                        cloud_ready = False
 
                 stage = "committing unified workbook"
                 os.replace(tmp, active)
                 tmp = None
                 workbook_committed = True
 
-                if cloud_state.enabled:
-                    stage = "persisting Vercel control-tower state"
-                    cloud_state.publish_core(active, aging_cloud_snapshot, reference)
-                    cloud_published = True
+                # Cloud publication is additive, not a prerequisite for a valid
+                # import. The manifest is still written last by publish_core().
+                if cloud_ready:
+                    stage = "mirroring control-tower state to cloud"
+                    try:
+                        cloud_state.publish_core(active, aging_cloud_snapshot, reference)
+                        cloud_published = True
+                        _cloud_runtime_error = ""
+                    except Exception as exc:
+                        _cloud_runtime_error = str(exc)
+                        _write_import_error_log(reference, stage, exc)
+                        if cloud_state.durable_required:
+                            raise
+                        app.logger.warning("Optional cloud publication failed [%s]", reference, exc_info=True)
+                        warnings.append("Cloud persistence failed, but the validated import remains active in runtime storage.")
+                        cloud_ready = False
 
-                # Publishing the already-staged candidate is an in-memory operation and
-                # avoids a second full workbook re-read after the commit.
                 stage = "publishing dashboard state"
                 store.adopt_from(candidate_store, active)
                 _safe_unlink(EMPTY_STATE_MARKER)
-                # A successful new revision repairs any stale/corrupt prior cloud
-                # state that may have failed lazy hydration on this warm process.
-                _cloud_runtime_error = ""
                 _cloud_runtime_hydrated = True
 
             except Exception as exc:
                 app.logger.exception("Unified import failed at %s [%s]", stage, reference)
                 _write_import_error_log(reference, stage, exc)
 
-                # Restore only the state that was actually changed. The live in-memory
-                # DashboardStore is not adopted until the workbook commit succeeds.
                 try:
                     if workbook_committed:
                         if had_active and active_backup and active_backup.exists():
@@ -893,16 +946,18 @@ def admin_import():
                 _invalidate_bootstrap_cache()
                 return fail(f"Unified refresh stopped during {stage}: {exc}", 400)
 
-            # Non-core housekeeping is intentionally best-effort. A saved workbook and
-            # Aging database should never be rolled back because a cache or optional
-            # branch synchronization file could not be refreshed.
             stage = "finalizing workspace"
             try:
-                if cloud_state.enabled:
-                    cloud_state.delete_named_file(STATE_ROOT, MANAGEMENT_ALLOCATIONS)
                 _safe_unlink(MANAGEMENT_ALLOCATIONS)
                 with _management_lock:
                     _management_allocations_cache = {}
+                if cloud_published:
+                    try:
+                        cloud_state.delete_named_file(STATE_ROOT, MANAGEMENT_ALLOCATIONS)
+                    except Exception as exc:
+                        _cloud_runtime_error = str(exc)
+                        app.logger.warning("Optional Management cloud reset warning [%s]", reference, exc_info=True)
+                        warnings.append("Management planning cloud reset could not be mirrored; runtime reset succeeded.")
             except Exception:
                 app.logger.warning("Management planning reset warning [%s]", reference, exc_info=True)
 
@@ -912,6 +967,18 @@ def admin_import():
                 app.logger.warning("Delivery branch synchronization warning [%s]", reference, exc_info=True)
 
             _invalidate_bootstrap_cache()
+
+            persistence_mode = "local-filesystem"
+            persistence_durable = not IS_VERCEL
+            if IS_VERCEL:
+                if cloud_published:
+                    persistence_mode = "durable-cloud"
+                    persistence_durable = True
+                else:
+                    persistence_mode = "runtime-fallback"
+                    persistence_durable = False
+                    if not any("runtime" in item.lower() for item in warnings):
+                        warnings.append("Vercel runtime fallback is active. Import succeeded without external storage; data may reset after a cold start or redeployment.")
 
             message = (
                 "Unified import complete — Executive/KPI, Reorder/Management and Motorcycle Aging refreshed from one workbook. "
@@ -923,16 +990,21 @@ def admin_import():
                 "message": message,
                 "reference": reference,
                 "generated_at": store.generated_at.isoformat(),
+                "persistence": {
+                    "mode": persistence_mode,
+                    "durable": persistence_durable,
+                    "provider": cloud_state.status().provider if IS_VERCEL else "local-filesystem",
+                },
+                "warnings": warnings,
                 "modules": {
                     "scm": {"status": "updated", "records": len(store.raw_records)},
+                    "kpi": {"status": "updated", **_kpi_period_diagnostics()},
                     "management": {"status": "updated", "source": store.management_sheet_name or "Not detected"},
                     "aging": {"status": "updated", **aging_result},
                 },
             })
 
     except Exception as exc:
-        # Last-resort contract: even an unexpected server-side exception is returned
-        # as JSON with a local diagnostic reference rather than Flask's HTML 500 page.
         app.logger.exception("Unexpected unified import error at %s [%s]", stage, reference)
         _write_import_error_log(reference, stage, exc)
         return fail(
@@ -1169,53 +1241,53 @@ def admin_clear_data():
         return storage_error
     """Destructively clear all user-loaded SCM and Motorcycle Aging data.
 
-    The application remains installed, but dashboards stay empty until fresh
-    files are imported again. Bundled templates/reference files are preserved.
+    Runtime state is always cleared first. If optional cloud persistence is
+    connected, the empty marker is mirrored there; cloud failure is non-blocking
+    unless strict durable storage was explicitly requested.
     """
-    global _management_allocations_cache
+    global _management_allocations_cache, _cloud_runtime_error
     payload = _json_payload()
     confirmation = str(payload.get("confirmation") or "").strip().upper()
     if confirmation != "CLEAR DATA":
         return jsonify({"error": "Type CLEAR DATA exactly to confirm the reset."}), 400
-
-    # Publish the durable empty-state marker before deleting the disposable
-    # /tmp working copies. A future Vercel cold start will therefore remain empty.
-    reset_reference = f"CLEAR-{_now_local().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(2).upper()}"
-    try:
-        if cloud_state.enabled:
-            cloud_state.publish_empty_core(reset_reference)
-            cloud_state.delete_named_file(STATE_ROOT, MANAGEMENT_ALLOCATIONS)
-    except Exception as exc:
-        app.logger.exception("Unable to persist Clear Data operation")
-        return jsonify({"error": f"Clear Data was not started because persistent storage could not be updated: {exc}"}), 503
 
     ACTIVE_IMPORT.unlink(missing_ok=True)
     (UPLOAD_DIR / "candidate_import.xlsx").unlink(missing_ok=True)
     MANAGEMENT_ALLOCATIONS.unlink(missing_ok=True)
     _management_allocations_cache = {}
 
-    # Main SCM dashboard must remain empty after reset, including across restarts.
     store.clear()
     EMPTY_STATE_MARKER.write_text(_now_local().isoformat(), encoding="utf-8")
 
-    # Clear saved planning rows while keeping application configuration/templates.
     delivery_store.reset_to_defaults()
     delivery_store.sync_dashboard_branches([])
-
-    # The integrated Motorcycle Aging module is part of the same system reset.
     clear_aging_data()
-
     _invalidate_bootstrap_cache()
 
     for legacy_dir in (STATE_ROOT / "exports", BASE / "exports"):
         if legacy_dir.exists() and legacy_dir.is_dir():
             shutil.rmtree(legacy_dir, ignore_errors=True)
 
+    warnings = []
+    reset_reference = f"CLEAR-{_now_local().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(2).upper()}"
+    if cloud_state.enabled:
+        try:
+            cloud_state.publish_empty_core(reset_reference)
+            cloud_state.delete_named_file(STATE_ROOT, MANAGEMENT_ALLOCATIONS)
+            _cloud_runtime_error = ""
+        except Exception as exc:
+            _cloud_runtime_error = str(exc)
+            app.logger.warning("Optional cloud Clear Data mirror failed", exc_info=True)
+            if cloud_state.durable_required:
+                return jsonify({"error": f"Runtime data was cleared, but strict durable storage could not be updated: {exc}"}), 503
+            warnings.append("Runtime data was cleared successfully; the optional cloud mirror could not be updated.")
+
     return jsonify({
         "ok": True,
-        "message": "All imported and saved system data was cleared. Dashboards are now empty until new files are imported.",
+        "message": "All imported and saved runtime data was cleared. Dashboards are now empty until new files are imported.",
         "records": 0,
         "aging_records": 0,
+        "warnings": warnings,
     })
 
 
@@ -1276,17 +1348,31 @@ def admin_export_delivery():
 def health():
     storage_status = cloud_state.status()
     blocking_issues = []
+    warnings = []
+
     if IS_VERCEL and not SERVERLESS_SESSION_READY:
         blocking_issues.append("stable-admin-session-secret-missing")
-    if IS_VERCEL and not storage_status.enabled:
-        blocking_issues.append("persistent-blob-storage-not-connected")
+
+    if IS_VERCEL and cloud_state.durable_required and not storage_status.enabled:
+        blocking_issues.append("strict-durable-storage-not-connected")
+    elif IS_VERCEL and not storage_status.enabled:
+        warnings.append("runtime-storage-fallback-active")
+
     if _cloud_runtime_error:
-        blocking_issues.append("cloud-runtime-hydration-error")
+        if cloud_state.durable_required:
+            blocking_issues.append("cloud-runtime-hydration-error")
+        else:
+            warnings.append("optional-cloud-runtime-error")
+
     deployment_ready = (not IS_VERCEL) or not blocking_issues
+    mutation_ready = deployment_ready
     return {
         "status": "ok" if deployment_ready else "degraded",
         "deployment_ready": deployment_ready,
+        "mutation_ready": mutation_ready,
+        "import_ready": mutation_ready,
         "blocking_issues": blocking_issues,
+        "warnings": warnings,
         "version": APP_VERSION,
         "role": role(),
         "serverless_session_ready": SERVERLESS_SESSION_READY,
@@ -1295,11 +1381,14 @@ def health():
         "admin_password_configured": bool(str(os.environ.get("SCM_ADMIN_PASSWORD") or "").strip()),
         "records": len(store.raw_records),
         "management_models": len(store.management_records),
+        "kpi_periods": _kpi_period_diagnostics(),
         "aging_records": aging_record_count(),
         "delivery_allocations": len(delivery_store.allocations),
         "runtime": storage_status.runtime,
         "storage": storage_status.provider,
+        "storage_mode": cloud_state.persistence_mode,
         "persistent_storage": storage_status.enabled,
+        "strict_durable_storage": cloud_state.durable_required,
         "storage_detail": storage_status.detail,
         "storage_auth_mode": storage_status.auth_mode,
         "storage_runtime_error": _cloud_runtime_error or None,

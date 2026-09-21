@@ -53,6 +53,26 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIs(first, second)
         self.assertGreater(len(first.rows), 2)
 
+
+    def test_kpi_period_columns_are_dynamic_and_accept_text_dates(self):
+        store = DashboardStore(None)
+        target = "MUTI MC : Stock Outrate - Overall after PO Balance"
+        rows = [
+            [target, None, 0.10, 0.20, 0.30, 0.40],
+            [None, None, 46053, 46081, "09/21/2026", "2026-10-31"],
+        ]
+        series = store._extract_kpi(rows, target)
+        self.assertEqual(len(series["labels"]), 4)
+        self.assertEqual(series["labels"][-2:], ["Sep 21, 2026", "Oct 31, 2026"])
+        self.assertEqual(series["values"][-2:], [30.0, 40.0])
+
+        # The supplied v2.46.9 baseline contains a newly-added YTD text-date
+        # column. It must be visible instead of stopping at August.
+        bundled = DashboardStore(WORKBOOK)
+        for payload in bundled.kpis.values():
+            self.assertEqual(payload["ytd"]["labels"][-1], "Sep 21, 2026")
+            self.assertGreaterEqual(len(payload["ytd"]["labels"]), 9)
+
     def test_delivery_state_round_trip(self):
         store = DashboardStore(WORKBOOK)
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -85,12 +105,27 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn("DELIVERY OPERATIONS CENTER", template)
         self.assertIn("Branch Dispatch Sequence", template)
 
-    def test_model_aging_summary_has_sort_control_on_every_column(self):
+    def test_model_aging_summary_has_professional_sort_controls(self):
         template = (ROOT / "templates" / "aging" / "dashboard.html").read_text(encoding="utf-8")
+        aging_js = (ROOT / "static" / "aging" / "js" / "app.js").read_text(encoding="utf-8")
         self.assertIn('id="modelAgingSummaryTable"', template)
-        self.assertEqual(template.count('class="table-sort-button'), 9)
-        for index in range(9):
+        self.assertEqual(template.count('class="table-sort-button'), 10)
+        for index in range(1, 11):
             self.assertIn(f'data-sort-index="{index}"', template)
+        self.assertIn('id="modelSortDesc"', template)
+        self.assertIn('Highest → Lowest', template)
+        self.assertIn('id="modelSortAsc"', template)
+        self.assertIn('id="modelSortField"', template)
+        self.assertIn('id="modelTableSearch"', template)
+        self.assertIn('data-model-sort-preset="risk"', template)
+        self.assertIn("sortRows('aged90','descending',{announce:false})", aging_js)
+        self.assertIn("config[key].type==='number'?'descending':'ascending'", aging_js)
+
+    def test_aging_model_risk_uses_same_exposure_thresholds(self):
+        from dashboard.aging.analytics import _risk_level
+        self.assertEqual(_risk_level(40)[0], "High")
+        self.assertEqual(_risk_level(20)[0], "Watch")
+        self.assertEqual(_risk_level(19.9)[0], "Controlled")
 
 
     def test_admin_access_session_contract(self):
@@ -303,6 +338,43 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertEqual(put_headers["x-vercel-blob-access"], "private")
         self.assertEqual(put_headers["x-allow-overwrite"], "1")
 
+
+    def test_vercel_runtime_fallback_does_not_require_blob(self):
+        env = {
+            "VERCEL": "1",
+            "BLOB_STORE_ID": "",
+            "BLOB_READ_WRITE_TOKEN": "",
+            "VERCEL_OIDC_TOKEN": "",
+            "SCM_REQUIRE_DURABLE_STORAGE": "0",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            cloud = VercelBlobState()
+            cloud.bind_request_oidc("oidc-runtime-token")
+            self.assertFalse(cloud.enabled)
+            self.assertFalse(cloud.durable_required)
+            self.assertTrue(cloud.allow_ephemeral)
+            self.assertEqual(cloud.persistence_mode, "runtime-fallback")
+            status = cloud.status()
+            self.assertEqual(status.provider, "vercel-runtime-fallback")
+            self.assertEqual(status.auth_mode, "runtime-fallback")
+
+    def test_legacy_strict_storage_flags_do_not_block_universal_runtime(self):
+        env = {
+            "VERCEL": "1",
+            "BLOB_STORE_ID": "",
+            "BLOB_READ_WRITE_TOKEN": "",
+            "VERCEL_OIDC_TOKEN": "",
+            "SCM_REQUIRE_DURABLE_STORAGE": "1",
+            "SCM_REQUIRE_BLOB_STORAGE": "1",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            cloud = VercelBlobState()
+            cloud.bind_request_oidc("oidc-runtime-token")
+            self.assertFalse(cloud.enabled)
+            self.assertFalse(cloud.durable_required)
+            self.assertTrue(cloud.allow_ephemeral)
+            self.assertEqual(cloud.status().provider, "vercel-runtime-fallback")
+
     def test_vercel_persistent_storage_contract(self):
         app_source = (ROOT / "app.py").read_text(encoding="utf-8")
         cloud_source = (ROOT / "dashboard" / "cloud_state.py").read_text(encoding="utf-8")
@@ -318,7 +390,9 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn('request.headers.get("x-vercel-oidc-token", "")', app_source)
         self.assertIn('cloud_state.probe()', app_source)
         self.assertIn('cloud_state.publish_core(active, aging_cloud_snapshot, reference)', app_source)
-        self.assertIn('error_stage="checking Vercel storage"', app_source)
+        self.assertNotIn('error_stage="checking Vercel storage"', app_source)
+        self.assertIn('runtime-fallback', app_source)
+        self.assertIn('strict_durable_storage', app_source)
         self.assertIn('cloud_state.publish_empty_core(reset_reference)', app_source)
         self.assertIn('persist_callback=_persist_small_state if cloud_state.enabled else None', app_source)
         self.assertIn('delivery_store.set_persist_callback(_persist_small_state)', app_source)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import re
@@ -24,12 +24,63 @@ def _col_index(cell_ref: str) -> int:
 
 
 def excel_serial_to_date(value: Any) -> Optional[datetime]:
-    try:
-        serial = float(value)
-    except (TypeError, ValueError):
+    """Normalize Excel serials and common date text into a datetime.
+
+    KPI period headers can arrive from Excel either as numeric serials or as
+    text/formula results (for example ``09/21/2026``).  Treating only numeric
+    serials as dates made a newly-added YTD/Weekly column silently disappear.
+    Keep this dependency-free and deliberately conservative: numeric values use
+    Excel's 1900 date system, while text is accepted only when it matches a
+    known date shape.
+    """
+    if value is None or value == "":
         return None
-    # Excel's 1900 date system (including the historic leap-year quirk).
-    return datetime(1899, 12, 30) + timedelta(days=serial)
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+
+    # Native numeric cell / numeric string -> Excel 1900 serial.
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            serial = float(value)
+            if serial <= 0:
+                return None
+            return datetime(1899, 12, 30) + timedelta(days=serial)
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    # Numeric strings are also valid cached Excel serials.
+    try:
+        serial = float(text)
+        if serial > 0:
+            return datetime(1899, 12, 30) + timedelta(days=serial)
+    except (TypeError, ValueError, OverflowError):
+        pass
+
+    # Common Excel/display formats used by the control-tower YTD/Weekly sheets.
+    formats = (
+        "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%d/%m/%y",
+        "%Y-%m-%d", "%Y/%m/%d",
+        "%d-%b-%Y", "%d-%b-%y",
+        "%b %d, %Y", "%B %d, %Y", "%b %d %Y", "%B %d %Y",
+        "%b-%Y", "%b %Y",
+    )
+    for fmt in formats:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+
+    # ISO datetime text may include a time component or UTC offset.
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 @dataclass

@@ -53,22 +53,33 @@ window.addEventListener('scm-theme-change',()=>{if(window._agingChartData)window
   if(!table)return;
   const tbody=table.tBodies[0];
   if(!tbody)return;
-  const buttons=[...table.querySelectorAll('.table-sort-button[data-sort-index]')];
-  let activeIndex=-1;
-  let direction='none';
 
-  function updateHeaders(index,nextDirection){
-    buttons.forEach(btn=>{
-      const th=btn.closest('th');
-      const btnIndex=Number(btn.dataset.sortIndex);
-      const isActive=btnIndex===index;
-      th?.setAttribute('aria-sort',isActive?nextDirection:'none');
-      const label=(btn.querySelector('span')?.textContent||'column').trim();
-      const next=isActive&&nextDirection==='ascending'?'descending':'ascending';
-      btn.setAttribute('aria-label',`${label}: sorted ${isActive?nextDirection:'not sorted'}. Activate to sort ${next}.`);
-      btn.title=`Sort ${label} ${next}`;
-    });
-  }
+  const buttons=[...table.querySelectorAll('.table-sort-button[data-sort-index]')];
+  const search=document.getElementById('modelTableSearch');
+  const sortField=document.getElementById('modelSortField');
+  const descBtn=document.getElementById('modelSortDesc');
+  const ascBtn=document.getElementById('modelSortAsc');
+  const visibleCount=document.getElementById('modelVisibleCount');
+  const sortStatus=document.getElementById('modelSortStatus');
+  const noResults=document.getElementById('modelNoResults');
+  const presetButtons=[...document.querySelectorAll('[data-model-sort-preset]')];
+
+  const config={
+    model:{index:1,type:'text',label:'Standard Description'},
+    risk:{index:2,type:'number',label:'Exposure Level'},
+    qty:{index:3,type:'number',label:'Total Units'},
+    avgAge:{index:4,type:'number',label:'Average Age'},
+    aged90:{index:5,type:'number',label:'91+ Units'},
+    agedPct:{index:6,type:'number',label:'91+ Percentage'},
+    agedValue:{index:7,type:'number',label:'Aged Value'},
+    oldest:{index:8,type:'number',label:'Oldest Unit'},
+    branches:{index:9,type:'number',label:'Branches'},
+    areas:{index:10,type:'number',label:'Areas'}
+  };
+  const presetMap={risk:['aged90','descending'],capital:['agedValue','descending'],oldest:['oldest','descending']};
+  const rows=[...tbody.rows].filter(row=>row.hasAttribute('data-original-index'));
+  let activeKey='aged90';
+  let direction='descending';
 
   function sortableValue(row,index,type){
     const cell=row.cells[index];
@@ -80,29 +91,99 @@ window.addEventListener('scm-theme-change',()=>{if(window._agingChartData)window
     return String(raw).trim().toLocaleLowerCase();
   }
 
+  function keyForButton(btn){
+    return btn.dataset.sortKey || Object.keys(config).find(key=>config[key].index===Number(btn.dataset.sortIndex)) || 'model';
+  }
+
+  function directionText(){return direction==='descending'?'Highest → Lowest':'Lowest → Highest'}
+
+  function updateHeaderState(){
+    const active=config[activeKey];
+    buttons.forEach(btn=>{
+      const key=keyForButton(btn);
+      const th=btn.closest('th');
+      const selected=key===activeKey;
+      th?.setAttribute('aria-sort',selected?direction:'none');
+      const label=config[key]?.label || (btn.querySelector('span')?.textContent||'column').trim();
+      const nextDirection=selected?(direction==='descending'?'ascending':'descending'):(config[key]?.type==='number'?'descending':'ascending');
+      const nextLabel=nextDirection==='descending'?'highest to lowest':'lowest to highest';
+      btn.setAttribute('aria-label',`${label}: ${selected?`sorted ${directionText().toLowerCase()}`:'not sorted'}. Activate to sort ${nextLabel}.`);
+      btn.title=`Sort ${label} ${nextLabel}`;
+    });
+    if(sortField)sortField.value=activeKey;
+    if(descBtn){descBtn.classList.toggle('active',direction==='descending');descBtn.setAttribute('aria-pressed',String(direction==='descending'))}
+    if(ascBtn){ascBtn.classList.toggle('active',direction==='ascending');ascBtn.setAttribute('aria-pressed',String(direction==='ascending'))}
+    if(sortStatus)sortStatus.textContent=`${active.label} · ${directionText()}`;
+  }
+
+  function updatePresetState(){
+    presetButtons.forEach(btn=>{
+      const preset=presetMap[btn.dataset.modelSortPreset];
+      btn.classList.toggle('active',Boolean(preset&&preset[0]===activeKey&&preset[1]===direction));
+    });
+  }
+
+  function applySearchAndRanks(){
+    const term=(search?.value||'').trim().toLocaleLowerCase();
+    let shown=0;
+    rows.forEach(row=>{
+      const name=(row.dataset.modelName||'').toLocaleLowerCase();
+      const visible=!term||name.includes(term);
+      row.hidden=!visible;
+      if(visible){
+        shown+=1;
+        const rank=row.querySelector('.model-rank');
+        if(rank)rank.textContent=String(shown);
+      }
+    });
+    if(visibleCount)visibleCount.textContent=`${shown} ${shown===1?'model':'models'} shown`;
+    if(noResults)noResults.classList.toggle('hidden',shown!==0);
+    table.classList.toggle('has-filtered-rows',Boolean(term));
+  }
+
+  function sortRows(key=activeKey,nextDirection=direction,{announce=true}={}){
+    if(!config[key])return;
+    activeKey=key;
+    direction=nextDirection==='ascending'?'ascending':'descending';
+    const {index,type}=config[activeKey];
+    table.classList.add('is-sorting');
+    rows.sort((a,b)=>{
+      const av=sortableValue(a,index,type),bv=sortableValue(b,index,type);
+      const cmp=type==='number'?(av-bv):av.localeCompare(bv,undefined,{numeric:true,sensitivity:'base'});
+      if(cmp===0)return Number(a.dataset.originalIndex||0)-Number(b.dataset.originalIndex||0);
+      return direction==='ascending'?cmp:-cmp;
+    });
+    const fragment=document.createDocumentFragment();
+    rows.forEach(row=>fragment.appendChild(row));
+    tbody.appendChild(fragment);
+    updateHeaderState();
+    updatePresetState();
+    applySearchAndRanks();
+    window.setTimeout(()=>table.classList.remove('is-sorting'),120);
+    if(announce&&window.showAgingToast){window.showAgingToast(`Models sorted by ${config[activeKey].label} · ${directionText()}`,'success')}
+  }
+
   buttons.forEach(btn=>{
-    const label=(btn.querySelector('span')?.textContent||'column').trim();
-    btn.title=`Sort ${label} ascending`;
-    btn.setAttribute('aria-label',`${label}: not sorted. Activate to sort ascending.`);
     btn.addEventListener('click',()=>{
-      const index=Number(btn.dataset.sortIndex);
-      const type=btn.dataset.sortType==='number'?'number':'text';
-      direction=(activeIndex===index&&direction==='ascending')?'descending':'ascending';
-      activeIndex=index;
-      const rows=[...tbody.rows].filter(row=>row.hasAttribute('data-original-index'));
-      if(rows.length<2){updateHeaders(index,direction);return}
-      table.classList.add('is-sorting');
-      rows.sort((a,b)=>{
-        const av=sortableValue(a,index,type),bv=sortableValue(b,index,type);
-        const cmp=type==='number'?(av-bv):av.localeCompare(bv,undefined,{numeric:true,sensitivity:'base'});
-        if(cmp===0)return Number(a.dataset.originalIndex||0)-Number(b.dataset.originalIndex||0);
-        return direction==='ascending'?cmp:-cmp;
-      });
-      const fragment=document.createDocumentFragment();
-      rows.forEach(row=>fragment.appendChild(row));
-      tbody.appendChild(fragment);
-      updateHeaders(index,direction);
-      window.setTimeout(()=>table.classList.remove('is-sorting'),140);
+      const key=keyForButton(btn);
+      const next=activeKey===key?(direction==='descending'?'ascending':'descending'):(config[key].type==='number'?'descending':'ascending');
+      sortRows(key,next);
     });
   });
+
+  sortField?.addEventListener('change',()=>{
+    const key=sortField.value;
+    const next=config[key]?.type==='text'?'ascending':direction;
+    sortRows(key,next);
+  });
+  descBtn?.addEventListener('click',()=>sortRows(activeKey,'descending'));
+  ascBtn?.addEventListener('click',()=>sortRows(activeKey,'ascending'));
+  presetButtons.forEach(btn=>btn.addEventListener('click',()=>{
+    const preset=presetMap[btn.dataset.modelSortPreset];
+    if(preset)sortRows(preset[0],preset[1]);
+  }));
+  search?.addEventListener('input',applySearchAndRanks);
+  search?.addEventListener('keydown',event=>{if(event.key==='Escape'){search.value='';applySearchAndRanks();search.blur()}});
+
+  sortRows('aged90','descending',{announce:false});
 })();

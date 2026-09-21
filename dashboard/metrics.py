@@ -566,14 +566,33 @@ class DashboardStore:
 
     @staticmethod
     def _looks_like_dates(row: List[Any]) -> bool:
+        """Recognize KPI period rows even when Excel stores dates as text.
+
+        Older imports mostly carried native Excel serials. Newer workbooks may
+        append a period column whose date is a text/formula result such as
+        ``09/21/2026``. Requiring only numeric serials caused the new period to
+        be ignored. A period row is accepted when at least two cells are
+        plausible Excel dates, whether numeric or textual.
+        """
         vals = row[2:] if len(row) > 2 else []
         hits = 0
         for v in vals:
+            if v is None or v == "":
+                continue
+            # Guard against ordinary KPI numbers (e.g. DoI 30-90) being
+            # interpreted as 1900-era Excel dates.
             try:
-                if 30000 <= float(v) <= 80000:
-                    hits += 1
+                numeric = float(v)
+                is_numeric = True
             except (TypeError, ValueError):
-                pass
+                numeric = 0.0
+                is_numeric = False
+            if is_numeric:
+                if 30000 <= numeric <= 80000:
+                    hits += 1
+                continue
+            if excel_serial_to_date(v) is not None:
+                hits += 1
         return hits >= 2
 
     def _summary(self, records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:

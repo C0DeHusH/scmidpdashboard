@@ -218,19 +218,24 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     model_summary = []
     for s in model_stats.values():
         qty = s["qty"]
+        aged_90_pct_model = (s["aged_90"] / qty * 100) if qty else 0
+        model_risk_level, _ = _risk_level(aged_90_pct_model)
         model_summary.append({
             "standard_description": s["standard_description"],
             "qty": qty,
             "value": s["value"],
             "avg_age": s["age_weight"] / qty if qty else 0,
             "aged_90": s["aged_90"],
-            "aged_90_pct": (s["aged_90"] / qty * 100) if qty else 0,
+            "aged_90_pct": aged_90_pct_model,
             "aged_value": s["aged_value"],
             "oldest": s["oldest"],
             "branch_count": len(s["branches"]),
             "area_count": len(s["areas"]),
+            "risk_level": model_risk_level,
+            "risk_rank": {"High": 3, "Watch": 2, "Controlled": 1}.get(model_risk_level, 0),
         })
     model_summary.sort(key=lambda x: (x["aged_90"], x["aged_90_pct"], x["aged_value"]), reverse=True)
+    model_risk_counts = Counter(x["risk_level"] for x in model_summary)
 
     top_area = area_ranking[0] if area_ranking else None
     top_branch = branch_ranking[0] if branch_ranking else None
@@ -269,6 +274,11 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "area_ranking": area_ranking[:12],
         "branch_ranking": branch_ranking[:15],
         "model_summary": model_summary[:75],
+        "model_risk_counts": {
+            "High": model_risk_counts.get("High", 0),
+            "Watch": model_risk_counts.get("Watch", 0),
+            "Controlled": model_risk_counts.get("Controlled", 0),
+        },
         "top_area": top_area,
         "top_branch": top_branch,
         "top_model": top_model,
