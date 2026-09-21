@@ -90,8 +90,9 @@ class DeliveryStore:
     state directory so Render can point SCM_DATA_DIR at a persistent disk when desired.
     """
 
-    def __init__(self, default_master_path: str | Path, state_dir: str | Path):
+    def __init__(self, default_master_path: str | Path, state_dir: str | Path, persist_callback=None):
         self._lock = RLock()
+        self._persist_callback = persist_callback
         self.default_master_path = Path(default_master_path)
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True)
@@ -211,12 +212,19 @@ class DeliveryStore:
             self.schedule = migrated
             self._save_schedule()
 
-    @staticmethod
-    def _atomic_write_json(path: Path, payload: Any) -> None:
-        """Persist JSON with replace semantics so interrupted writes cannot corrupt state."""
+    def _atomic_write_json(self, path: Path, payload: Any) -> None:
+        """Persist JSON locally and, when configured, to durable cloud state.
+
+        The cloud callback receives the exact serialized bytes *before* the local
+        replace.  On Vercel the local path is disposable ``/tmp`` working state,
+        while the callback is the durable source of truth.
+        """
         path.parent.mkdir(parents=True, exist_ok=True)
+        serialized = json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+        if self._persist_callback is not None:
+            self._persist_callback(path, serialized)
         tmp = path.with_name(f".{path.name}.tmp")
-        tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.write_bytes(serialized)
         tmp.replace(path)
 
     def _save_master(self) -> None:

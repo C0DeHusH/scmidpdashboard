@@ -8,6 +8,7 @@ from copy import deepcopy
 from functools import wraps
 from dotenv import load_dotenv
 import hmac
+import hashlib
 import os
 import shutil
 import json
@@ -24,13 +25,42 @@ from dashboard.metrics import DashboardStore
 from dashboard.xlsx_export import build_branch_request_xlsx, build_delivery_plan_xlsx, build_management_order_xlsx
 from dashboard.ppt_export import build_presentation
 from dashboard.delivery import DeliveryStore, DAYS
+from dashboard.cloud_state import VercelBlobState
 
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env")
 DATA_FILE = BASE / "data" / "MC_Dashboard_IMPORT.xlsx"
+APP_VERSION = "2.46.5"
+IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
+
+# Vercel's deployed project files are not a durable writable data directory.
+# Keep openpyxl/sqlite working files in the function's disposable /tmp area and
+# use Private Vercel Blob as the durable source of truth. Local/Render behavior
+# remains unchanged unless SCM_DATA_DIR is explicitly configured.
+if IS_VERCEL and not str(os.environ.get("SCM_DATA_DIR") or "").strip():
+    os.environ["SCM_DATA_DIR"] = str(Path(tempfile.gettempdir()) / "scm-idp-dashboard")
 STATE_ROOT = Path(os.environ.get("SCM_DATA_DIR", str(BASE / "uploads")))
 STATE_ROOT.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR = STATE_ROOT
+ACTIVE_IMPORT = UPLOAD_DIR / "active_import.xlsx"
+EMPTY_STATE_MARKER = STATE_ROOT / ".scm_no_data"
+MANAGEMENT_ALLOCATIONS = STATE_ROOT / "management_allocations.json"
+DELIVERY_STATE_DIR = STATE_ROOT / "delivery"
+
+cloud_state = VercelBlobState()
+CLOUD_BOOT_ERROR = ""
+try:
+    # Hydrate before importing the Aging blueprint because its module-level DB
+    # initialization must see the durable SQLite snapshot on a cold start.
+    cloud_state.hydrate_core(STATE_ROOT)
+    cloud_state.hydrate_named_files(STATE_ROOT, [
+        "management_allocations.json",
+        "delivery/delivery_master.json",
+        "delivery/delivery_allocations.json",
+        "delivery/delivery_schedule.json",
+    ])
+except Exception as exc:
+    CLOUD_BOOT_ERROR = str(exc)
 
 from dashboard.aging.routes import aging_bp
 from dashboard.aging.db import (
@@ -87,10 +117,22 @@ def _write_secret(path: Path, value: str) -> None:
 
 
 def _load_or_create_secret_key() -> str:
-    """Use an environment secret in production and a durable per-user secret locally."""
+    """Use a stable environment-derived secret on Vercel and durable local secret elsewhere."""
     configured = str(os.environ.get("SCM_SECRET_KEY") or "").strip()
     if configured:
         return configured
+
+    if IS_VERCEL:
+        # A random file-based key under /tmp would change after a cold start and
+        # invalidate every Admin session. Prefer the connected private Blob token;
+        # fall back to the configured Admin password + Vercel project id so the
+        # cookie signature remains stable across function instances.
+        blob_secret = str(os.environ.get("BLOB_READ_WRITE_TOKEN") or "").strip()
+        admin_secret = str(os.environ.get("SCM_ADMIN_PASSWORD") or "").strip()
+        project_id = str(os.environ.get("VERCEL_PROJECT_ID") or "scm-idp-dashboard").strip()
+        material = blob_secret or (f"{admin_secret}|{project_id}" if admin_secret else "")
+        if material:
+            return hashlib.sha256(f"scm-idp-session|{material}".encode("utf-8")).hexdigest()
 
     shared_path = _shared_session_secret_path()
     local_path = STATE_ROOT / ".session_secret"
@@ -107,14 +149,14 @@ def _load_or_create_secret_key() -> str:
 
 app = Flask(__name__)
 app.secret_key = _load_or_create_secret_key()
-app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = (4 * 1024 * 1024) if IS_VERCEL else (25 * 1024 * 1024)
 # IMPORTANT: use an application-specific cookie name. Browser cookies are scoped
 # by host/path, not by port, so Flask's default `session` cookie can be overwritten
 # by another local Flask app or another SCM version running on 127.0.0.1.
 app.config["SESSION_COOKIE_NAME"] = str(os.environ.get("SCM_SESSION_COOKIE_NAME") or "scm_idp_admin")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SCM_COOKIE_SECURE", "0") == "1"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SCM_COOKIE_SECURE", "1" if IS_VERCEL else "0") == "1"
 app.config["SESSION_COOKIE_PATH"] = "/"
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=max(1, int(os.environ.get("SCM_ADMIN_SESSION_HOURS", "12"))))
 app.config["SESSION_REFRESH_EACH_REQUEST"] = True
@@ -123,9 +165,8 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 3600
 ADMIN_PASSWORD = str(os.environ.get("SCM_ADMIN_PASSWORD") or "admin123")
 if ADMIN_PASSWORD == "admin123":
     app.logger.warning("SCM_ADMIN_PASSWORD is not configured; local fallback password is active. Set SCM_ADMIN_PASSWORD before production use.")
-ACTIVE_IMPORT = UPLOAD_DIR / "active_import.xlsx"
-EMPTY_STATE_MARKER = STATE_ROOT / ".scm_no_data"
-MANAGEMENT_ALLOCATIONS = STATE_ROOT / "management_allocations.json"
+if CLOUD_BOOT_ERROR:
+    app.logger.error("Cloud state hydration failed: %s", CLOUD_BOOT_ERROR)
 APP_TZ = timezone(timedelta(hours=int(os.environ.get("SCM_UTC_OFFSET_HOURS", "8"))))
 
 app.register_blueprint(aging_bp)
@@ -135,13 +176,19 @@ def _now_local() -> datetime:
     return datetime.now(APP_TZ)
 
 
+def _persist_small_state(path: Path, payload: bytes) -> None:
+    """Persist small mutable JSON state when a durable backend is configured."""
+    cloud_state.persist_named_file(STATE_ROOT, path, payload=payload)
+
+
 store = DashboardStore(
     None if EMPTY_STATE_MARKER.exists()
     else (ACTIVE_IMPORT if ACTIVE_IMPORT.exists() else DATA_FILE)
 )
 delivery_store = DeliveryStore(
     BASE / "data" / "delivery_master.json",
-    STATE_ROOT / "delivery",
+    DELIVERY_STATE_DIR,
+    persist_callback=_persist_small_state if cloud_state.enabled else None,
 )
 delivery_store.sync_dashboard_branches(store.raw_records)
 _management_allocations_cache = None
@@ -162,6 +209,28 @@ def _json_payload() -> dict:
 
 def _send_bytes(payload: bytes, filename: str, mimetype: str):
     return send_file(BytesIO(payload), mimetype=mimetype, as_attachment=True, download_name=filename)
+
+
+def _persistent_storage_error():
+    """Return a JSON error response when a Vercel mutation would be ephemeral."""
+    if not IS_VERCEL or cloud_state.allow_ephemeral:
+        return None
+    if CLOUD_BOOT_ERROR:
+        return jsonify({
+            "error": "Persistent Vercel storage could not be loaded. The dashboard is in read-only protection mode.",
+            "detail": CLOUD_BOOT_ERROR,
+            "storage_required": True,
+        }), 503
+    if not cloud_state.enabled:
+        return jsonify({
+            "error": (
+                "This Vercel deployment needs a connected Private Vercel Blob store before saved data can be changed. "
+                "Open the Vercel project → Storage → Create Database → Blob → Private, connect it to this project, "
+                "then redeploy so BLOB_READ_WRITE_TOKEN is available."
+            ),
+            "storage_required": True,
+        }), 503
+    return None
 
 
 def _save_temp_upload(file_storage, *, prefix: str, allowed_extensions: set[str]) -> Path:
@@ -276,10 +345,15 @@ def _load_management_allocations():
 def _save_management_allocations(data):
     global _management_allocations_cache
     snapshot = deepcopy(data)
+    serialized = json.dumps(snapshot, indent=2, sort_keys=True).encode("utf-8")
     with _management_lock:
+        # On Vercel, publish the durable copy first. The subsequent /tmp replace
+        # is only a working cache and must never be the sole saved copy.
+        if cloud_state.enabled:
+            cloud_state.persist_named_file(STATE_ROOT, MANAGEMENT_ALLOCATIONS, payload=serialized)
         MANAGEMENT_ALLOCATIONS.parent.mkdir(parents=True, exist_ok=True)
         tmp = MANAGEMENT_ALLOCATIONS.with_suffix(".tmp")
-        tmp.write_text(json.dumps(snapshot, indent=2, sort_keys=True), encoding="utf-8")
+        tmp.write_bytes(serialized)
         tmp.replace(MANAGEMENT_ALLOCATIONS)
         _management_allocations_cache = snapshot
 
@@ -418,6 +492,9 @@ def api_management():
 @app.post("/admin/management/allocations")
 @admin_required
 def admin_management_allocations():
+    storage_error = _persistent_storage_error()
+    if storage_error:
+        return storage_error
     payload = _json_payload()
     incoming = payload.get("allocations") or {}
     try:
@@ -428,7 +505,11 @@ def admin_management_allocations():
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
-    _save_management_allocations(current)
+    try:
+        _save_management_allocations(current)
+    except Exception as exc:
+        app.logger.exception("Unable to persist Management Order Plan")
+        return jsonify({"error": f"Unable to save Management Order Plan to persistent storage: {exc}"}), 503
     return jsonify({"ok": True, "updated": updated, "message": f"Saved {updated} Management planning line(s)."})
 
 
@@ -520,8 +601,8 @@ def api_model():
 def admin_import():
     """Transactionally refresh SCM, Management and Aging from one workbook.
 
-    v2.46.3 stages the full dashboard parse before mutating live state and guarantees
-    JSON diagnostics for every handled failure, so the browser never has to report a
+    v2.46.5 keeps the v2.46.3 staged parse and adds durable Vercel state publication.
+    It keeps JSON diagnostics for every handled failure, so the browser never has to report a
     vague "Import failed" message for a recoverable workbook/server error.
     """
     global _management_allocations_cache
@@ -531,6 +612,7 @@ def admin_import():
     tmp: Path | None = None
     active_backup: Path | None = None
     aging_backup: Path | None = None
+    aging_cloud_snapshot: Path | None = None
 
     def fail(message: str, status: int = 400, *, error_stage: str | None = None):
         return jsonify({
@@ -541,6 +623,12 @@ def admin_import():
         }), status
 
     try:
+        storage_error = _persistent_storage_error()
+        if storage_error:
+            response, status = storage_error
+            payload = response.get_json(silent=True) or {}
+            return fail(str(payload.get("error") or "Persistent storage is unavailable."), status, error_stage="checking Vercel storage")
+
         uploaded = request.files.get("file")
         if not uploaded:
             return fail("Please select the consolidated .xlsx import workbook.")
@@ -563,6 +651,8 @@ def admin_import():
             token = reference.replace(":", "-")
             active_backup = UPLOAD_DIR / f".active_import_backup_{token}.xlsx"
             aging_backup = AGING_DB_PATH.with_name(f".aging_backup_{token}.db")
+            aging_cloud_snapshot = AGING_DB_PATH.with_name(f".aging_cloud_{token}.db")
+            previous_cloud_manifest = cloud_state.get_json(cloud_state.core_manifest_key) if cloud_state.enabled else None
 
             stage = "validating SCM workbook"
             check = DashboardStore.validate(tmp)
@@ -590,6 +680,7 @@ def admin_import():
             had_aging_db = AGING_DB_PATH.exists()
             workbook_committed = False
             aging_committed = False
+            cloud_published = False
 
             try:
                 stage = "creating rollback snapshot"
@@ -602,10 +693,21 @@ def admin_import():
                 aging_result = import_aging_excel(tmp, original_name, mode="replace", sheet_name=aging_preflight.get("sheet") or "Aging")
                 aging_committed = True
 
+                # SQLite can keep recently committed pages in WAL. Create a consistent
+                # snapshot for durable cloud storage instead of copying the live DB file.
+                if cloud_state.enabled:
+                    stage = "creating durable Aging snapshot"
+                    backup_aging_database(aging_cloud_snapshot)
+
                 stage = "committing unified workbook"
                 os.replace(tmp, active)
                 tmp = None
                 workbook_committed = True
+
+                if cloud_state.enabled:
+                    stage = "persisting Vercel control-tower state"
+                    cloud_state.publish_core(active, aging_cloud_snapshot, reference)
+                    cloud_published = True
 
                 # Publishing the already-staged candidate is an in-memory operation and
                 # avoids a second full workbook re-read after the commit.
@@ -637,6 +739,15 @@ def admin_import():
                 except Exception:
                     app.logger.exception("Aging database rollback failed [%s]", reference)
 
+                if cloud_published:
+                    try:
+                        if previous_cloud_manifest:
+                            cloud_state.put_json(cloud_state.core_manifest_key, previous_cloud_manifest)
+                        else:
+                            cloud_state.delete(cloud_state.core_manifest_key)
+                    except Exception:
+                        app.logger.exception("Cloud core manifest rollback failed [%s]", reference)
+
                 _invalidate_bootstrap_cache()
                 return fail(f"Unified refresh stopped during {stage}: {exc}", 400)
 
@@ -645,6 +756,8 @@ def admin_import():
             # branch synchronization file could not be refreshed.
             stage = "finalizing workspace"
             try:
+                if cloud_state.enabled:
+                    cloud_state.delete_named_file(STATE_ROOT, MANAGEMENT_ALLOCATIONS)
                 _safe_unlink(MANAGEMENT_ALLOCATIONS)
                 with _management_lock:
                     _management_allocations_cache = {}
@@ -689,6 +802,7 @@ def admin_import():
         _safe_unlink(tmp)
         _safe_unlink(active_backup)
         _safe_unlink(aging_backup)
+        _safe_unlink(aging_cloud_snapshot)
 
 
 @app.get("/admin/export/pptx")
@@ -748,6 +862,9 @@ def admin_export_request():
 @app.post("/admin/delivery/import")
 @admin_required
 def admin_delivery_import():
+    storage_error = _persistent_storage_error()
+    if storage_error:
+        return storage_error
     uploaded = request.files.get("file")
     if not uploaded:
         return jsonify({"error": "Select an allocation file."}), 400
@@ -767,6 +884,9 @@ def admin_delivery_import():
 @app.post("/admin/delivery/master")
 @admin_required
 def admin_delivery_master():
+    storage_error = _persistent_storage_error()
+    if storage_error:
+        return storage_error
     payload = _json_payload()
     try:
         master = delivery_store.update_master(str(payload.get("section", "")), payload.get("rows"))
@@ -778,6 +898,9 @@ def admin_delivery_master():
 @app.post("/admin/delivery/schedule/import")
 @admin_required
 def admin_delivery_schedule_import():
+    storage_error = _persistent_storage_error()
+    if storage_error:
+        return storage_error
     uploaded = request.files.get("file")
     if not uploaded:
         return jsonify({"error": "Select a Weekly Truck Schedule file."}), 400
@@ -797,6 +920,9 @@ def admin_delivery_schedule_import():
 @app.post("/admin/delivery/schedule")
 @admin_required
 def admin_delivery_schedule():
+    storage_error = _persistent_storage_error()
+    if storage_error:
+        return storage_error
     payload = _json_payload()
     try:
         schedule = delivery_store.update_schedule(payload.get("rows") or [])
@@ -808,6 +934,9 @@ def admin_delivery_schedule():
 @app.post("/admin/delivery/plan")
 @admin_required
 def admin_delivery_plan_save():
+    storage_error = _persistent_storage_error()
+    if storage_error:
+        return storage_error
     """Persist the current weekly truck schedule and allocation plan together."""
     payload = _json_payload()
     try:
@@ -826,6 +955,9 @@ def admin_delivery_plan_save():
 @app.post("/admin/delivery/allocations")
 @admin_required
 def admin_delivery_allocations():
+    storage_error = _persistent_storage_error()
+    if storage_error:
+        return storage_error
     payload = _json_payload()
     try:
         allocations = delivery_store.replace_allocations(payload.get("rows") or [])
@@ -837,6 +969,9 @@ def admin_delivery_allocations():
 @app.patch("/admin/delivery/allocation/<int:index>")
 @admin_required
 def admin_delivery_allocation_update(index: int):
+    storage_error = _persistent_storage_error()
+    if storage_error:
+        return storage_error
     payload = _json_payload()
     try:
         allocations = delivery_store.update_allocation(index, payload)
@@ -850,6 +985,9 @@ def admin_delivery_allocation_update(index: int):
 @app.post("/admin/delivery/allocation/<int:index>/transfer")
 @admin_required
 def admin_delivery_allocation_transfer(index: int):
+    storage_error = _persistent_storage_error()
+    if storage_error:
+        return storage_error
     payload = _json_payload()
     try:
         allocations = delivery_store.transfer_allocation(
@@ -868,6 +1006,9 @@ def admin_delivery_allocation_transfer(index: int):
 @app.delete("/admin/delivery/allocation/<int:index>")
 @admin_required
 def admin_delivery_allocation_delete(index: int):
+    storage_error = _persistent_storage_error()
+    if storage_error:
+        return storage_error
     try:
         allocations = delivery_store.delete_allocation(index)
     except (ValueError, IndexError) as exc:
@@ -881,6 +1022,9 @@ def admin_delivery_allocation_delete(index: int):
 @app.post("/admin/clear-data")
 @admin_required
 def admin_clear_data():
+    storage_error = _persistent_storage_error()
+    if storage_error:
+        return storage_error
     """Destructively clear all user-loaded SCM and Motorcycle Aging data.
 
     The application remains installed, but dashboards stay empty until fresh
@@ -891,6 +1035,17 @@ def admin_clear_data():
     confirmation = str(payload.get("confirmation") or "").strip().upper()
     if confirmation != "CLEAR DATA":
         return jsonify({"error": "Type CLEAR DATA exactly to confirm the reset."}), 400
+
+    # Publish the durable empty-state marker before deleting the disposable
+    # /tmp working copies. A future Vercel cold start will therefore remain empty.
+    reset_reference = f"CLEAR-{_now_local().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(2).upper()}"
+    try:
+        if cloud_state.enabled:
+            cloud_state.publish_empty_core(reset_reference)
+            cloud_state.delete_named_file(STATE_ROOT, MANAGEMENT_ALLOCATIONS)
+    except Exception as exc:
+        app.logger.exception("Unable to persist Clear Data operation")
+        return jsonify({"error": f"Clear Data was not started because persistent storage could not be updated: {exc}"}), 503
 
     ACTIVE_IMPORT.unlink(missing_ok=True)
     (UPLOAD_DIR / "candidate_import.xlsx").unlink(missing_ok=True)
@@ -945,6 +1100,9 @@ def admin_delivery_clear():
             "saved_allocation_rows": len(delivery_store.allocations),
             "message": "Working Delivery Board cleared. The saved Weekly Truck Schedule and saved Allocation for the week were preserved and can be opened again.",
         })
+    storage_error = _persistent_storage_error()
+    if storage_error:
+        return storage_error
     try:
         delivery_store.replace_allocations([])
     except Exception as exc:
@@ -974,14 +1132,21 @@ def admin_export_delivery():
 
 @app.get("/health")
 def health():
+    storage_status = cloud_state.status()
     return {
-        "status": "ok",
+        "status": "degraded" if CLOUD_BOOT_ERROR else "ok",
+        "version": APP_VERSION,
         "role": role(),
         "records": len(store.raw_records),
         "management_models": len(store.management_records),
         "aging_records": aging_record_count(),
         "delivery_allocations": len(delivery_store.allocations),
-        "storage": "local",
+        "runtime": storage_status.runtime,
+        "storage": storage_status.provider,
+        "persistent_storage": storage_status.enabled,
+        "storage_detail": storage_status.detail,
+        "storage_boot_error": CLOUD_BOOT_ERROR or None,
+        "state_root": str(STATE_ROOT),
         "saved_import": ACTIVE_IMPORT.exists(),
         "data_source": "no-data" if EMPTY_STATE_MARKER.exists() else ("saved-import" if ACTIVE_IMPORT.exists() else "bundled-baseline"),
         "export_storage": "in-memory-download-only",
@@ -990,7 +1155,10 @@ def health():
 
 @app.errorhandler(413)
 def _request_too_large(_exc):
-    message = "Upload exceeds the 25 MB dashboard limit."
+    message = (
+        "Upload exceeds the 4 MB Vercel Function limit for this server-side import."
+        if IS_VERCEL else "Upload exceeds the 25 MB dashboard limit."
+    )
     if request.path.startswith("/admin/") or request.path.startswith("/api/"):
         return jsonify({"error": message}), 413
     return message, 413

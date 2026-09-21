@@ -1,5 +1,7 @@
 const state={boot:null,charts:[],model:null,requests:[],period:'ytd',theme:document.documentElement.dataset.theme||'dark',branchData:null,classFilter:'A',statusData:null,statusChart:null,management:null,managementEdits:{},delivery:null,deliveryMasterTab:'trucks',showPointData:false,scheduleAreaFilter:'All Areas',savedAllocationBaseline:null,deliveryBoardCleared:false,scheduleCollapsed:localStorage.getItem('scm_weekly_schedule_collapsed')==='1',allocationCollapsed:localStorage.getItem('scm_allocation_import_collapsed')==='1',scheduleDirty:false,allocationEditIndex:null,reorderCard:null,reorderClassFilter:'All',reorderBrandFilter:'All Brands'};
 const isAdmin=Boolean(window.SCM_CONFIG?.isAdmin);
+if(typeof Chart!=='undefined'){Chart.defaults.font.family='Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';Chart.defaults.font.size=11;Chart.defaults.font.weight='500';}
+
 const $=s=>document.querySelector(s); const $$=s=>[...document.querySelectorAll(s)];
 const requestControllers=new Map();
 const nativeFetch=window.fetch.bind(window);
@@ -68,7 +70,7 @@ const pointValueLabelPlugin={
     const meta=chart.getDatasetMeta(actualIndex),values=chart.data.datasets[actualIndex].data,ctx=chart.ctx;
     ctx.save();
     ctx.fillStyle=opts.color||'#e2e8f0';
-    ctx.font='700 10px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+    ctx.font='600 10px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
     ctx.textAlign='center';
     ctx.textBaseline='bottom';
     meta.data.forEach((pt,i)=>{

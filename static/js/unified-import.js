@@ -64,13 +64,13 @@
   submit.addEventListener('click',()=>{
     if(!file||busy)return;
     busy=true;submit.disabled=true;submit.textContent='Importing…';result.hidden=true;drop.classList.remove('is-error');
-    setProgress(10,'Uploading workbook','Sending one consolidated source to the local control tower…');
+    setProgress(10,'Uploading workbook','Sending one consolidated source to the control tower…');
     const fd=new FormData();fd.append('file',file);
     const xhr=new XMLHttpRequest();xhr.open('POST','/admin/import',true);xhr.withCredentials=true;xhr.timeout=210000;
-    xhr.upload.onprogress=e=>{if(e.lengthComputable){const uploadPct=Math.min(34,10+(e.loaded/e.total)*24);setProgress(uploadPct,'Uploading workbook','Secure local upload in progress…')}};
+    xhr.upload.onprogress=e=>{if(e.lengthComputable){const uploadPct=Math.min(34,10+(e.loaded/e.total)*24);setProgress(uploadPct,'Uploading workbook','Secure upload in progress…')}};
     xhr.upload.onload=()=>{
       let synthetic=36;setProgress(synthetic,'Validating workbook','Checking workbook structure before any live data is changed…');
-      phaseTimer=setInterval(()=>{synthetic=Math.min(88,synthetic+4);let label='Staging control-tower data',detail='Parsing inventory, KPI and management intelligence safely in memory…';if(synthetic>=60){label='Refreshing Motorcycle Aging';detail='Mapping Aging branches to the Raw Branch/Area master and recalculating age exposure…'}if(synthetic>=78){label='Committing unified refresh';detail='Creating rollback snapshots and publishing the validated workbook…'}setProgress(synthetic,label,detail)},420);
+      phaseTimer=setInterval(()=>{synthetic=Math.min(88,synthetic+4);let label='Staging control-tower data',detail='Parsing inventory, KPI and management intelligence safely in memory…';if(synthetic>=60){label='Refreshing Motorcycle Aging';detail='Mapping Aging branches to the Raw Branch/Area master and recalculating age exposure…'}if(synthetic>=78){label='Committing unified refresh';detail='Creating rollback snapshots and persisting the validated revision to durable storage…'}setProgress(synthetic,label,detail)},420);
     };
     xhr.onload=()=>{
       if(phaseTimer)clearInterval(phaseTimer);phaseTimer=null;
@@ -89,7 +89,7 @@
       window.setTimeout(()=>{const u=new URL(window.location.href);u.searchParams.delete('open_import');window.location.replace(u.pathname+u.search+u.hash)},850);
     };
     xhr.onerror=()=>{if(phaseTimer)clearInterval(phaseTimer);phaseTimer=null;busy=false;submit.disabled=false;submit.textContent='Try Again';drop.classList.add('is-error');const detail='Connection interrupted before the server returned a result. The previous data remains active.';setProgress(100,'Connection interrupted',detail);result.hidden=false;result.className='unified-import-result is-error';result.innerHTML=`<b>Refresh stopped safely.</b><span>${escapeHtml(detail)}</span>`;};
-    xhr.ontimeout=()=>{if(phaseTimer)clearInterval(phaseTimer);phaseTimer=null;busy=false;submit.disabled=false;submit.textContent='Try Again';drop.classList.add('is-error');const detail='The import exceeded the browser wait limit. The previous data remains active. Retry once; if it persists, check uploads/logs/unified_import_errors.log.';setProgress(100,'Import timed out',detail);result.hidden=false;result.className='unified-import-result is-error';result.innerHTML=`<b>Refresh stopped safely.</b><span>${escapeHtml(detail)}</span>`;};
+    xhr.ontimeout=()=>{if(phaseTimer)clearInterval(phaseTimer);phaseTimer=null;busy=false;submit.disabled=false;submit.textContent='Try Again';drop.classList.add('is-error');const detail='The import exceeded the browser wait limit. The previous data remains active. Retry once; if it persists, check /health storage status and the deployment logs.';setProgress(100,'Import timed out',detail);result.hidden=false;result.className='unified-import-result is-error';result.innerHTML=`<b>Refresh stopped safely.</b><span>${escapeHtml(detail)}</span>`;};
     xhr.send(fd);
   });
 

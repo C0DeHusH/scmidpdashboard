@@ -28,7 +28,7 @@ window.renderAgingCharts=function(data){
   (window._agingCharts||[]).forEach(c=>{try{c.destroy()}catch(_){}});window._agingCharts=[];
   const light=document.documentElement.dataset.theme==='light';
   const axis=light?'#5d7898':'#8da2ba', gridColor=light?'rgba(100,116,139,.14)':'rgba(148,163,184,.075)', tooltipBg=light?'rgba(255,255,255,.98)':'rgba(2,6,23,.96)', tooltipText=light?'#0b1f3a':'#f8fafc', tooltipBody=light?'#496887':'#cbd5e1', chartBorder=light?'#eef5fc':'#08111f';
-  Chart.defaults.color=axis;Chart.defaults.borderColor=gridColor;Chart.defaults.font.family='Segoe UI Variable, Segoe UI, Arial, sans-serif';Chart.defaults.font.size=11;
+  Chart.defaults.color=axis;Chart.defaults.borderColor=gridColor;Chart.defaults.font.family='Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';Chart.defaults.font.size=11;Chart.defaults.font.weight='500';
   const grid={color:gridColor,drawBorder:false};
   const tooltip={backgroundColor:tooltipBg,titleColor:tooltipText,bodyColor:tooltipBody,borderColor:'rgba(59,130,246,.24)',borderWidth:1,padding:12,cornerRadius:10,displayColors:false};
   const base={responsive:true,maintainAspectRatio:false,animation:{duration:540,easing:'easeOutQuart'},plugins:{legend:{display:false},tooltip},scales:{x:{grid:{display:false},ticks:{maxRotation:0,minRotation:0,color:axis}},y:{beginAtZero:true,grid,ticks:{precision:0,color:axis}}}};

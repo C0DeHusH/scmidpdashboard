@@ -1,8 +1,11 @@
+
+> **Current release:** v2.46.5 — Vercel Persistent Storage Fix. See `RELEASE_NOTES_v2.46.5.md`.
+
 > **v2.46.3:** Unified Data Refresh recovery release. Imports are now fully preflighted before commit, tolerate harmless worksheet/header placement differences, preserve prior data transactionally, and always return a readable stage/reference when an import cannot be completed.
 >
 > **v2.46.2:** Admin access reliability release. Management Order Plan, Branch Request Simulator, Delivery Plan, Data Operations, and Aging Admin actions use an application-specific session cookie, durable local signing key, explicit browser credentials, and automatic re-authentication handling.
 
-# SCM Inventory & Distribution Planning Control Tower — v2.46.3
+# SCM Inventory & Distribution Planning Control Tower — v2.46.5
 
 
 A unified local Flask control tower for:
@@ -41,6 +44,12 @@ There is **no Supabase requirement** and **no separate Aging import**.
 - Motorcycle Aging runtime database: `uploads/aging/aging.db`
 - Global cleared/no-data marker: `uploads/.scm_no_data`
 - Generated exports are built on demand and downloaded; they are not archived by the app.
+
+## v2.46.5 Vercel persistence
+
+Vercel deployments no longer attempt to write runtime data into the deployed project folder. The app uses `/tmp/scm-idp-dashboard` as disposable working storage and **Private Vercel Blob** as the durable source of truth for Unified Import, Motorcycle Aging, Management Order Plan, and Delivery Plan state. If Blob is not configured, Vercel write actions are blocked rather than falsely reporting a save that can disappear on a cold start.
+
+See `VERCEL_DEPLOYMENT.md` before redeploying to Vercel.
 
 ## v2.45 highlights
 

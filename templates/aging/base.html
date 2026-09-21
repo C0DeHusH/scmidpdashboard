@@ -12,11 +12,15 @@
     document.documentElement.dataset.theme=saved||preferred;
   })();
   </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
-  <script>tailwind.config={theme:{extend:{fontFamily:{sans:['Segoe UI Variable','Segoe UI','Arial','sans-serif']}}}}</script>
+  <script>tailwind.config={theme:{extend:{fontFamily:{sans:['Inter','ui-sans-serif','system-ui','sans-serif'],display:['Manrope','Inter','ui-sans-serif','system-ui','sans-serif']}}}}</script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='aging/css/app.css') }}?v=2463">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/v244-ui.css') }}?v=2463">
+  <link rel="stylesheet" href="{{ url_for('static', filename='aging/css/app.css') }}?v=2465">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/v244-ui.css') }}?v=2465">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/v2464-professional.css') }}?v=2465">
 </head>
 <body class="aging-module sidebar-expanded min-h-screen font-sans antialiased">
 <div id="sidebarBackdrop"></div>
@@ -138,10 +142,10 @@
 </div>
 
 <div id="agingToast" role="status" aria-live="polite" aria-atomic="true" class="fixed bottom-4 right-4 z-[120] hidden max-w-sm rounded-xl border px-4 py-3 text-sm shadow-2xl"></div>
-<script src="{{ url_for('static', filename='js/aging-shell.js') }}?v=2463"></script>
-<script src="{{ url_for('static', filename='js/sidebar-data-ops.js') }}?v=2463"></script>
-<script src="{{ url_for('static', filename='js/unified-import.js') }}?v=2463"></script>
-<script src="{{ url_for('static', filename='aging/js/app.js') }}?v=2463"></script>
+<script src="{{ url_for('static', filename='js/aging-shell.js') }}?v=2465"></script>
+<script src="{{ url_for('static', filename='js/sidebar-data-ops.js') }}?v=2465"></script>
+<script src="{{ url_for('static', filename='js/unified-import.js') }}?v=2465"></script>
+<script src="{{ url_for('static', filename='aging/js/app.js') }}?v=2465"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -9,6 +9,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from dashboard.delivery import DeliveryStore
+from dashboard.cloud_state import VercelBlobState
 from dashboard.metrics import DashboardStore, TARGET_KPIS
 from dashboard.xlsx_reader import XlsxReader
 from dashboard.xlsx_export import build_delivery_plan_xlsx
@@ -157,6 +158,75 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn("Reference:", import_js)
         self.assertNotIn("xhr.responseType='json'", import_js)
 
+
+    def test_delivery_cloud_persist_callback_contract(self):
+        captured = []
+        with tempfile.TemporaryDirectory() as temp_dir:
+            def persist(path, payload):
+                captured.append((Path(path).name, bytes(payload)))
+
+            delivery = DeliveryStore(MASTER, temp_dir, persist_callback=persist)
+            captured.clear()
+            delivery.replace_allocations([
+                {"model": "TEST MODEL", "branch": "TEST BRANCH", "quantity": 2, "class": "A"}
+            ])
+            self.assertTrue(captured)
+            self.assertEqual(captured[-1][0], "delivery_allocations.json")
+            self.assertIn(b"TEST MODEL", captured[-1][1])
+
+    def test_cloud_core_revision_manifest_is_last_write(self):
+        class Result:
+            def __init__(self, payload):
+                self.status_code = 200
+                self.stream = [payload]
+
+        class FakeBlob:
+            def __init__(self):
+                self.objects = {}
+                self.put_order = []
+            def put(self, key, payload, **_kwargs):
+                self.objects[key] = bytes(payload)
+                self.put_order.append(key)
+            def get(self, key, **_kwargs):
+                payload = self.objects.get(key)
+                return None if payload is None else Result(payload)
+            def delete(self, key, **_kwargs):
+                self.objects.pop(key, None)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workbook = root / "active_import.xlsx"
+            aging = root / "aging.db"
+            workbook.write_bytes(b"xlsx-state")
+            aging.write_bytes(b"sqlite-state")
+
+            cloud = VercelBlobState()
+            cloud.token = "test-token"
+            cloud._client = FakeBlob()
+            manifest = cloud.publish_core(workbook, aging, "IMP-TEST-001")
+
+            self.assertEqual(cloud._client.put_order[-1], cloud._key(cloud.core_manifest_key))
+            self.assertEqual(manifest["revision"], "IMP-TEST-001")
+
+            runtime = root / "runtime"
+            hydrated = cloud.hydrate_core(runtime)
+            self.assertEqual(hydrated["revision"], "IMP-TEST-001")
+            self.assertEqual((runtime / "active_import.xlsx").read_bytes(), b"xlsx-state")
+            self.assertEqual((runtime / "aging" / "aging.db").read_bytes(), b"sqlite-state")
+
+    def test_vercel_persistent_storage_contract(self):
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        cloud_source = (ROOT / "dashboard" / "cloud_state.py").read_text(encoding="utf-8")
+        requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+        self.assertIn('Path(tempfile.gettempdir()) / "scm-idp-dashboard"', app_source)
+        self.assertIn('cloud_state.publish_core(active, aging_cloud_snapshot, reference)', app_source)
+        self.assertIn('error_stage="checking Vercel storage"', app_source)
+        self.assertIn('cloud_state.publish_empty_core(reset_reference)', app_source)
+        self.assertIn('persist_callback=_persist_small_state if cloud_state.enabled else None', app_source)
+        self.assertIn('core/current.json', cloud_source)
+        self.assertIn('Private Vercel Blob', cloud_source)
+        self.assertIn('vercel>=0.5.0', requirements)
 
 
 if __name__ == "__main__":
