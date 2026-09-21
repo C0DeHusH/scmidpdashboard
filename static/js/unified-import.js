@@ -7,6 +7,13 @@
   const progress=$('#unifiedImportProgressBar'),pct=$('#unifiedImportProgressPct'),progressLabel=$('#unifiedImportProgressLabel'),stage=$('#unifiedImportStage'),result=$('#unifiedImportResult');
   let file=null,busy=false,phaseTimer=null;
 
+  const adminLoginUrl=()=>{const next=window.location.pathname+window.location.search+window.location.hash;return `/login?next=${encodeURIComponent(next)}`};
+  const redirectToLogin=message=>{
+    setProgress(100,'Admin session needs to be refreshed',message||'Please sign in again to continue.');
+    result.hidden=false;result.className='unified-import-result is-error';result.innerHTML=`<b>Admin sign-in required.</b><span>${escapeHtml(message||'Please sign in again to continue.')}</span>`;
+    window.setTimeout(()=>window.location.assign(adminLoginUrl()),700);
+  };
+
   const setProgress=(n,label,detail)=>{
     const value=Math.max(0,Math.min(100,Number(n)||0));
     progress.style.width=value+'%';pct.textContent=Math.round(value)+'%';
@@ -43,7 +50,7 @@
     busy=true;submit.disabled=true;submit.textContent='Importing…';result.hidden=true;drop.classList.remove('is-error');
     setProgress(10,'Uploading workbook','Sending one consolidated source to the local control tower…');
     const fd=new FormData();fd.append('file',file);
-    const xhr=new XMLHttpRequest();xhr.open('POST','/admin/import',true);xhr.responseType='json';
+    const xhr=new XMLHttpRequest();xhr.open('POST','/admin/import',true);xhr.responseType='json';xhr.withCredentials=true;
     xhr.upload.onprogress=e=>{if(e.lengthComputable){const uploadPct=Math.min(34,10+(e.loaded/e.total)*24);setProgress(uploadPct,'Uploading workbook','Secure local upload in progress…')}};
     xhr.upload.onload=()=>{
       let synthetic=36;setProgress(synthetic,'Validating workbook','Checking Raw, KPI, Reorder/Management and Aging sheets…');
@@ -52,6 +59,7 @@
     xhr.onload=()=>{
       if(phaseTimer)clearInterval(phaseTimer);phaseTimer=null;
       const data=xhr.response||{};
+      if((xhr.status===401||xhr.status===403)&&(data.reauth_required||String(data.error||'').toLowerCase().includes('admin'))){busy=false;redirectToLogin(data.error);return}
       if(xhr.status<200||xhr.status>=300){busy=false;submit.disabled=false;submit.textContent='Try Again';drop.classList.add('is-error');setProgress(100,'Import could not be completed',data.error||'The previous data remains active.');result.hidden=false;result.className='unified-import-result is-error';result.innerHTML=`<b>Refresh stopped safely.</b><span>${escapeHtml(data.error||'Import failed.')}</span>`;return}
       const a=data.modules?.aging||{};setProgress(100,'All modules refreshed','Executive, Management and Motorcycle Aging are now aligned to the same workbook.');
       result.hidden=false;result.className='unified-import-result is-success';result.innerHTML=`<div><b>Unified refresh complete</b><span>${Number(a.rows||0).toLocaleString()} aging units · ${Number(a.branches||0).toLocaleString()} branches · ${Number(a.areas||0).toLocaleString()} areas · As of ${escapeHtml(a.as_of_date||'—')}</span></div><span class="result-check">✓</span>`;

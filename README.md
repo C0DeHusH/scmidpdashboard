@@ -1,6 +1,7 @@
-> **v2.46.0:** Professional code audit release: lean distribution package, extracted static assets, safer persistence/imports, stale-request cancellation, stronger input handling, and regression smoke tests.
+> **v2.46.2:** Admin access reliability release. Management Order Plan, Branch Request Simulator, Delivery Plan, Data Operations, and Aging Admin actions now use an application-specific session cookie, durable local signing key, explicit browser credentials, and automatic re-authentication handling.
 
-# SCM Inventory & Distribution Planning Control Tower — v2.46
+# SCM Inventory & Distribution Planning Control Tower — v2.46.2
+
 
 A unified local Flask control tower for:
 
@@ -86,3 +87,8 @@ python -m unittest discover -s tests -v
 ```
 
 For the detailed findings and intentionally deferred refactors, see `CODE_AUDIT_v2.46.0.md`.
+## v2.46.2 Admin access reliability
+
+The local Admin session no longer uses Flask's generic `session` cookie. The dashboard now uses `scm_idp_admin`, which prevents other local Flask applications from overwriting SCM authentication on the same hostname. A per-user signing key also survives version-folder upgrades, protected browser requests explicitly send same-origin credentials, and stale Admin pages redirect to `/login` instead of showing misleading authorization failures.
+
+See `RELEASE_NOTES_v2.46.2.md` for the full fix.

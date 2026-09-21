@@ -42,33 +42,80 @@ from dashboard.aging.analytics import executive_summary as aging_executive_summa
 from dashboard.aging.importer import import_excel as import_aging_excel, validate_unified_aging
 
 
+def _shared_session_secret_path() -> Path:
+    """Return a per-user secret path that survives extracting a newer dashboard version."""
+    explicit = str(os.environ.get("SCM_SESSION_SECRET_FILE") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+
+    # Windows cookies are shared by hostname rather than TCP port, so keeping the
+    # signing key outside a versioned extraction folder avoids unnecessary session
+    # invalidation when the user upgrades the local dashboard package.
+    local_app_data = str(os.environ.get("LOCALAPPDATA") or "").strip()
+    if local_app_data:
+        return Path(local_app_data) / "SCM_IDP_Dashboard" / ".session_secret"
+
+    xdg_state = str(os.environ.get("XDG_STATE_HOME") or "").strip()
+    if xdg_state:
+        return Path(xdg_state) / "scm-idp-dashboard" / ".session_secret"
+    return Path.home() / ".scm-idp-dashboard" / ".session_secret"
+
+
+def _read_secret(path: Path) -> str:
+    try:
+        value = path.read_text(encoding="utf-8").strip() if path.exists() else ""
+        return value if len(value) >= 32 else ""
+    except OSError:
+        return ""
+
+
+def _write_secret(path: Path, value: str) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(value, encoding="utf-8")
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+        tmp.replace(path)
+    except OSError:
+        # A read-only profile or state directory should not prevent local startup.
+        pass
+
+
 def _load_or_create_secret_key() -> str:
-    """Use an environment secret in production and a persistent local secret otherwise."""
+    """Use an environment secret in production and a durable per-user secret locally."""
     configured = str(os.environ.get("SCM_SECRET_KEY") or "").strip()
     if configured:
         return configured
 
-    secret_path = STATE_ROOT / ".session_secret"
-    try:
-        existing = secret_path.read_text(encoding="utf-8").strip() if secret_path.exists() else ""
-        if len(existing) >= 32:
-            return existing
-        generated = secrets.token_urlsafe(48)
-        tmp = secret_path.with_suffix(".tmp")
-        tmp.write_text(generated, encoding="utf-8")
-        tmp.replace(secret_path)
-        return generated
-    except OSError:
-        # Local fallback if the configured state directory is unexpectedly read-only.
-        return secrets.token_urlsafe(48)
+    shared_path = _shared_session_secret_path()
+    local_path = STATE_ROOT / ".session_secret"
+
+    # Prefer the per-user key so successive extracted versions authenticate the same
+    # browser session. The package-local copy is retained as a compatibility mirror.
+    existing = _read_secret(shared_path) or _read_secret(local_path)
+    if not existing:
+        existing = secrets.token_urlsafe(48)
+    _write_secret(shared_path, existing)
+    _write_secret(local_path, existing)
+    return existing
 
 
 app = Flask(__name__)
 app.secret_key = _load_or_create_secret_key()
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
+# IMPORTANT: use an application-specific cookie name. Browser cookies are scoped
+# by host/path, not by port, so Flask's default `session` cookie can be overwritten
+# by another local Flask app or another SCM version running on 127.0.0.1.
+app.config["SESSION_COOKIE_NAME"] = str(os.environ.get("SCM_SESSION_COOKIE_NAME") or "scm_idp_admin")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SCM_COOKIE_SECURE", "0") == "1"
+app.config["SESSION_COOKIE_PATH"] = "/"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=max(1, int(os.environ.get("SCM_ADMIN_SESSION_HOURS", "12"))))
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True
 app.config["JSON_SORT_KEYS"] = False
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 3600
 ADMIN_PASSWORD = str(os.environ.get("SCM_ADMIN_PASSWORD") or "admin123")
@@ -239,7 +286,11 @@ def admin_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if role() != "admin":
-            return jsonify({"error": "Admin access required."}), 403
+            return jsonify({
+                "error": "Your Admin session is not active. Please sign in again.",
+                "reauth_required": True,
+                "login_url": "/login",
+            }), 401
         return fn(*args, **kwargs)
     return wrapper
 
@@ -254,8 +305,17 @@ def login():
     if request.method == "POST":
         password = request.form.get("password", "")
         if hmac.compare_digest(password, ADMIN_PASSWORD):
+            # Start a fresh authenticated session and keep it alive through the
+            # configured work-session window. This also avoids carrying stale keys
+            # from another local Flask application into the SCM admin session.
+            session.clear()
+            session.permanent = True
             session["is_admin"] = True
-            return redirect(url_for("index"))
+            session["authenticated_at"] = _now_local().isoformat()
+            next_url = str(request.args.get("next") or request.form.get("next") or "").strip()
+            if not next_url.startswith("/") or next_url.startswith("//"):
+                next_url = url_for("index")
+            return redirect(next_url)
         flash("Invalid admin password.", "error")
     return render_template("login.html")
 
@@ -264,6 +324,17 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for("index"))
+
+
+@app.get("/api/session")
+def api_session():
+    """Lightweight browser/session handshake used by admin workspaces."""
+    is_admin = role() == "admin"
+    return jsonify({
+        "role": "admin" if is_admin else "guest",
+        "is_admin": is_admin,
+        "authenticated_at": session.get("authenticated_at") if is_admin else None,
+    })
 
 
 @app.get("/api/bootstrap")

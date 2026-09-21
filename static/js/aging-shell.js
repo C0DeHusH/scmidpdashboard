@@ -1,6 +1,9 @@
 (() => {
   const $ = (selector) => document.querySelector(selector);
+  const nativeFetch = window.fetch.bind(window);
+  const isAdmin = Boolean(document.querySelector('#dataOpsHost'));
   let toastTimer = null;
+  let authRedirectPending = false;
 
   function toast(message, ok = true) {
     const el = $('#agingToast');
@@ -14,6 +17,37 @@
     }`;
     el.classList.remove('hidden');
     toastTimer = setTimeout(() => el.classList.add('hidden'), 3500);
+  }
+
+  function adminLoginUrl() {
+    const next = window.location.pathname + window.location.search + window.location.hash;
+    return `/login?next=${encodeURIComponent(next)}`;
+  }
+
+  function scheduleAdminRelogin(message = 'Your Admin session expired. Please sign in again.') {
+    if (authRedirectPending) return;
+    authRedirectPending = true;
+    toast(message, false);
+    setTimeout(() => window.location.assign(adminLoginUrl()), 700);
+  }
+
+  async function appFetch(url, options = {}) {
+    const response = await nativeFetch(url, { credentials: 'same-origin', cache: 'no-store', ...options });
+    if (isAdmin && String(url).startsWith('/admin/') && (response.status === 401 || response.status === 403)) {
+      let data = {};
+      try { data = await response.clone().json(); } catch (_) {}
+      scheduleAdminRelogin(data.error || 'Admin access needs to be refreshed.');
+    }
+    return response;
+  }
+
+  async function verifyAdminSession() {
+    if (!isAdmin) return;
+    try {
+      const response = await nativeFetch('/api/session', { credentials: 'same-origin', cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok || !data.is_admin) scheduleAdminRelogin('Admin access needs to be refreshed. Please sign in again.');
+    } catch (_) {}
   }
 
   function responseFilename(response, fallbackName) {
@@ -98,6 +132,7 @@
 
   applySidebarPreference();
   syncThemeButton();
+  verifyAdminSession();
 
   $('#sidebarToggle')?.addEventListener('click', toggleSidebar);
   $('#mobileSidebarBtn')?.addEventListener('click', () => document.body.classList.add('sidebar-mobile-open'));
@@ -117,7 +152,7 @@
     if (label) label.textContent = 'Generating Deck…';
     toast('Generating the executive PowerPoint deck…');
     try {
-      const response = await fetch('/admin/export/pptx');
+      const response = await appFetch('/admin/export/pptx');
       if (!response.ok) {
         let data = {};
         try { data = await response.json(); } catch (_) {}
@@ -155,7 +190,7 @@
       button.textContent = 'Clearing…';
     }
     try {
-      const response = await fetch('/admin/clear-data', {
+      const response = await appFetch('/admin/clear-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirmation }),

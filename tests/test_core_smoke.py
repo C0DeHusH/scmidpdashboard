@@ -63,6 +63,48 @@ class DashboardCoreSmokeTests(unittest.TestCase):
             self.assertEqual(len(reloaded.allocations), 1)
             self.assertEqual(reloaded.allocations[0]["quantity"], 1.0)
 
+
+    def test_delivery_redesign_keeps_required_control_ids(self):
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        required = [
+            "deliveryTab", "deliveryDayFilter", "deliverySummaryCards", "deliveryWeekRibbon",
+            "saveDeliveryPlanBtn", "exportDeliveryBtn", "clearDeliveryBoardBtn", "openDeliveryMasterBtn",
+            "scheduleTripCount", "toggleScheduleBtn", "weeklyScheduleBody", "scheduleRows",
+            "allocationCount", "toggleAllocationBtn", "allocationImportBody", "deliveryImportFile",
+            "deliveryPlanPulse", "deliveryTruckGrid", "deliveryUnassigned", "deliveryPriorityList",
+        ]
+        for element_id in required:
+            self.assertEqual(template.count(f'id="{element_id}"'), 1, element_id)
+        self.assertIn("DELIVERY OPERATIONS CENTER", template)
+        self.assertIn("Branch Dispatch Sequence", template)
+
+    def test_model_aging_summary_has_sort_control_on_every_column(self):
+        template = (ROOT / "templates" / "aging" / "dashboard.html").read_text(encoding="utf-8")
+        self.assertIn('id="modelAgingSummaryTable"', template)
+        self.assertEqual(template.count('class="table-sort-button'), 9)
+        for index in range(9):
+            self.assertIn(f'data-sort-index="{index}"', template)
+
+
+    def test_admin_access_session_contract(self):
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        js = (ROOT / "static" / "js" / "dashboard-app.js").read_text(encoding="utf-8")
+        aging_js = (ROOT / "static" / "js" / "aging-shell.js").read_text(encoding="utf-8")
+        unified_js = (ROOT / "static" / "js" / "unified-import.js").read_text(encoding="utf-8")
+
+        self.assertIn('SESSION_COOKIE_NAME"] = str(os.environ.get("SCM_SESSION_COOKIE_NAME") or "scm_idp_admin")', app_source)
+        self.assertIn('@app.get("/api/session")', app_source)
+        self.assertIn('"reauth_required": True', app_source)
+        self.assertIn('session.permanent = True', app_source)
+        self.assertIn("credentials:'same-origin'", js)
+        self.assertIn("verifyAdminSession()", js)
+        self.assertIn("/admin/export/management", js)
+        self.assertIn("/admin/export/request", js)
+        self.assertIn("/admin/delivery/plan", js)
+        self.assertNotIn("window.location=`/admin/export/delivery", js)
+        self.assertIn("credentials: 'same-origin'", aging_js)
+        self.assertIn("xhr.withCredentials=true", unified_js)
+
     def test_delivery_export_builds_complete_week_workbook(self):
         store = DashboardStore(WORKBOOK)
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -12,8 +12,8 @@
 </script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
-<link rel="stylesheet" href="/static/css/dashboard.css?v=2460">
-<link rel="stylesheet" href="/static/css/v244-ui.css?v=2460">
+<link rel="stylesheet" href="/static/css/dashboard.css?v=2462">
+<link rel="stylesheet" href="/static/css/v244-ui.css?v=2462">
 </head>
 <body class="sidebar-expanded min-h-screen antialiased">
 <div id="sidebarBackdrop"></div>
@@ -220,62 +220,104 @@
 </section></main>
 
 <main id="deliveryTab" class="mt-4 hidden space-y-5">
-<section class="delivery-section glass rounded-2xl border p-4 sm:p-5">
-  <div class="delivery-command-bar">
-    <div><div class="section-kicker">DELIVERY CONTROL BOARD</div><h2 class="mt-1 text-xl font-black">Delivery Plan for the Week</h2><p class="delivery-help mt-1 max-w-3xl">One Monday-Saturday command view for schedule coverage, allocation demand, truck capacity, rollover and branch dispatch priority. Save the Weekly Schedule and Allocation together as one active delivery plan.</p></div>
-    <div class="delivery-toolbar">
-      <label class="min-w-0 text-[9px] font-black uppercase tracking-wider text-slate-500">Analyze Day<select id="deliveryDayFilter" class="mt-1 w-full rounded-xl border px-3 py-2.5 text-xs"></select></label>
-      {% if role == 'admin' %}<div class="delivery-toolbar-actions"><button id="saveDeliveryPlanBtn" class="rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-black text-white hover:bg-emerald-400">Save Schedule + Allocation</button><button id="clearDeliveryBoardBtn" class="rounded-xl border border-red-500/50 px-4 py-2.5 text-xs font-black text-red-400 hover:border-red-400 hover:bg-red-500/10">Clear Board</button><button id="exportDeliveryBtn" class="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white hover:bg-blue-500">Export Delivery Plan</button><button id="openDeliveryMasterBtn" class="rounded-xl border border-slate-700 px-4 py-2.5 text-xs font-black text-slate-300">Update Masterlists</button></div>{% endif %}
+<section class="delivery-command-center glass rounded-3xl border p-4 sm:p-5 lg:p-6">
+  <div class="delivery-command-hero">
+    <div class="min-w-0">
+      <div class="section-kicker">DELIVERY OPERATIONS CENTER</div>
+      <div class="mt-1 flex flex-wrap items-center gap-3"><h2 class="text-xl font-black sm:text-2xl">Weekly Dispatch Control</h2><span id="deliveryPlanHealth" class="delivery-health-pill rounded-full border px-2.5 py-1 text-[9px] font-black">READY</span></div>
+      <p class="delivery-help mt-2 max-w-3xl">Build the Monday-Saturday route, load allocation demand, balance truck capacity, then execute by branch priority. The board keeps schedule, capacity, rollover and backorder decisions in one operating view.</p>
+    </div>
+    <div class="delivery-scope-panel">
+      <label class="block text-[9px] font-black uppercase tracking-[.16em] text-slate-500">Analysis Scope<select id="deliveryDayFilter" class="mt-2 w-full rounded-xl border px-3 py-2.5 text-xs"></select></label>
+      <div class="mt-2 text-[9px] leading-relaxed text-slate-600">Select Whole Week for command-level planning or a day for dispatch execution.</div>
     </div>
   </div>
-  <div id="deliverySummaryCards" class="delivery-summary-grid mt-4"></div><div id="deliveryWeekRibbon" class="delivery-week-ribbon mt-3"></div>
-  <div id="savedDeliveryInputsBar" class="mt-4 hidden items-center justify-between gap-3 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3">
-    <div><div class="text-[9px] font-black uppercase tracking-wider text-emerald-500">Saved Delivery Plan • Protected</div><div class="mt-1 text-[10px] text-slate-500">The saved Weekly Truck Schedule and Allocation for the week are protected from Clear Board. Open either section to reload and review the saved plan.</div></div>
-    <div class="flex flex-wrap gap-2"><button id="viewSavedScheduleBtn" type="button" class="rounded-lg border border-slate-700 px-3 py-2 text-[10px] font-black text-slate-300 hover:border-blue-400/50 hover:text-blue-400">View Weekly Schedule</button><button id="viewSavedAllocationBtn" type="button" class="rounded-lg border border-slate-700 px-3 py-2 text-[10px] font-black text-slate-300 hover:border-blue-300/50 hover:text-blue-300">View Allocation Import</button></div>
-  </div>
-</section>
 
-<section class="delivery-section glass rounded-2xl border p-4 sm:p-5">
-  <div class="delivery-section-title">
-    <div><div class="flex items-center gap-2"><span class="delivery-step">1</span><h3 class="font-black">Weekly Truck Schedule</h3><span id="scheduleTripCount" class="rounded-full border border-slate-700 px-2 py-0.5 text-[9px] font-black text-slate-500">0 trips</span></div><p class="delivery-help mt-1">Set the Monday-Saturday route by Truck and Branch. The same Branch may appear more than once when it has multiple weekly deliveries; every saved row is treated as a valid delivery slot.</p></div>
-    <div class="flex flex-wrap items-center justify-end gap-2">
-      {% if role == 'admin' %}<label class="cursor-pointer rounded-xl border border-slate-700 px-3 py-2.5 text-xs font-black text-slate-300 hover:border-blue-400/50 hover:text-blue-400"><input id="scheduleImportFile" type="file" accept=".xlsx,.xlsm,.csv" class="hidden">Import Schedule</label><button id="newTripAssignmentBtn" class="rounded-xl border border-blue-400/40 px-3 py-2.5 text-xs font-black text-blue-300 hover:border-blue-300 hover:bg-blue-500/10">+ New Trip Assignment</button><button id="saveScheduleBtn" class="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white hover:bg-blue-500">Save Schedule</button>{% endif %}
-      <button id="toggleScheduleBtn" type="button" aria-expanded="true" class="rounded-xl border border-slate-700 px-3 py-2.5 text-xs font-black text-slate-300 hover:border-blue-400/50 hover:text-blue-400">Minimize</button>
+  <div class="delivery-workflow-rail mt-5" aria-label="Delivery planning workflow">
+    <div class="delivery-workflow-node"><span>01</span><div><b>Schedule</b><small>Route &amp; truck slots</small></div></div>
+    <div class="delivery-workflow-node"><span>02</span><div><b>Allocate</b><small>Branch-model demand</small></div></div>
+    <div class="delivery-workflow-node"><span>03</span><div><b>Balance</b><small>Capacity &amp; rollover</small></div></div>
+    <div class="delivery-workflow-node"><span>04</span><div><b>Dispatch</b><small>Branch execution</small></div></div>
+  </div>
+
+  {% if role == 'admin' %}
+  <div class="delivery-action-dock mt-4">
+    <div class="delivery-action-copy"><span class="delivery-action-dot"></span><span>Working Plan</span><small>Save when schedule and allocation are ready.</small></div>
+    <div class="delivery-toolbar-actions">
+      <button id="saveDeliveryPlanBtn" class="delivery-primary-action rounded-xl px-4 py-2.5 text-xs font-black text-white">Save Active Plan</button>
+      <button id="exportDeliveryBtn" class="rounded-xl border border-blue-400/45 bg-blue-500/10 px-4 py-2.5 text-xs font-black text-blue-300 hover:bg-blue-500/15">Export Plan</button>
+      <button id="openDeliveryMasterBtn" class="rounded-xl border border-slate-700 px-4 py-2.5 text-xs font-black text-slate-300">Masterlists</button>
+      <button id="clearDeliveryBoardBtn" class="rounded-xl border border-red-500/40 px-4 py-2.5 text-xs font-black text-red-400 hover:bg-red-500/10">Clear Working Board</button>
     </div>
   </div>
-  {% if role == 'admin' %}<div id="scheduleSaveState" class="mt-3 hidden rounded-xl border border-blue-400/30 bg-blue-500/10 px-3 py-2 text-[10px] font-bold text-blue-400">Unsaved schedule changes. Click Save Schedule to commit the route.</div>{% endif %}
-  <div id="weeklyScheduleBody">
-    <div class="mt-4 flex flex-wrap items-center justify-between gap-3"><div class="delivery-subpanel-title">Scheduled Trips</div><div class="text-[9px] text-slate-600">Day • Truck • Area • Branch • Weekly Frequency</div></div>
-    <div id="scheduleRows" class="mt-2 space-y-2"></div>
-    {% if role == 'admin' %}<div id="scheduleImportWarnings" class="mt-3 hidden rounded-xl border border-blue-400/30 bg-blue-500/10 p-3 text-[10px] leading-relaxed text-blue-400"></div>{% endif %}
+  {% endif %}
+
+  <div class="delivery-overview-shell mt-4">
+    <div class="delivery-overview-head"><div><div class="delivery-subpanel-title">Weekly Control Metrics</div><div id="deliveryAnalysisScope" class="mt-1 text-[10px] text-slate-500"></div></div><div id="deliveryThresholds" class="text-right text-[9px] font-bold uppercase tracking-wider text-slate-500"></div></div>
+    <div id="deliverySummaryCards" class="delivery-summary-grid mt-3"></div>
+  </div>
+
+  <div class="delivery-week-zone mt-4">
+    <div class="delivery-week-zone-head"><div><div class="delivery-subpanel-title">Monday-Saturday Rhythm</div><div class="mt-1 text-[10px] text-slate-500">Click a day to drill into its truck capacity and branch execution.</div></div><span class="delivery-week-legend"><i></i> Planned <i class="risk"></i> Action needed</span></div>
+    <div id="deliveryWeekRibbon" class="delivery-week-ribbon mt-3"></div>
+  </div>
+
+  <div id="savedDeliveryInputsBar" class="delivery-saved-plan mt-4 hidden items-center justify-between gap-3 rounded-2xl border border-emerald-500/25 p-3.5">
+    <div><div class="text-[9px] font-black uppercase tracking-wider text-emerald-500">Saved Delivery Plan • Protected</div><div class="mt-1 text-[10px] text-slate-500">Saved schedule and allocation are protected from Clear Working Board. Reopen either input when you need to review or revise it.</div></div>
+    <div class="flex flex-wrap gap-2"><button id="viewSavedScheduleBtn" type="button" class="rounded-lg border border-slate-700 px-3 py-2 text-[10px] font-black text-slate-300 hover:border-blue-400/50 hover:text-blue-400">Open Schedule</button><button id="viewSavedAllocationBtn" type="button" class="rounded-lg border border-slate-700 px-3 py-2 text-[10px] font-black text-slate-300 hover:border-blue-300/50 hover:text-blue-300">Open Allocation</button></div>
   </div>
 </section>
 
-<section class="delivery-section glass rounded-2xl border p-4 sm:p-5">
-  <div class="delivery-section-title">
-    <div><div class="flex items-center gap-2"><span class="delivery-step">2</span><h3 class="font-black">Allocation Import</h3><span id="allocationCount" class="rounded-full border border-slate-700 px-2.5 py-1 text-[10px] font-black text-slate-400">0 rows</span></div><p class="delivery-help mt-1">Import Model, Branch, Quantity, CLASS and Remarks. This is the demand input only; all dispatch mapping, capacity and rollover decisions are shown in the Delivery Plan below.</p></div>
-    <div class="flex flex-wrap items-center justify-end gap-2">{% if role == 'admin' %}<button class="openAllocationControl rounded-xl border border-blue-400/40 px-3 py-2.5 text-xs font-black text-blue-400 hover:border-blue-300 hover:bg-blue-500/10">Manage All Allocations</button><button id="clearAllocationsBtn" class="rounded-xl border border-red-500/40 px-3 py-2.5 text-xs font-black text-red-400 hover:border-red-400 hover:bg-red-500/10">Clear Allocations</button>{% endif %}<button id="toggleAllocationBtn" type="button" aria-expanded="true" class="rounded-xl border border-slate-700 px-3 py-2.5 text-xs font-black text-slate-300 hover:border-blue-300/50 hover:text-blue-300">Minimize</button></div>
-  </div>
-  <div id="allocationImportBody">
-    <div class="mt-4 grid gap-2 sm:grid-cols-2">{% if role == 'admin' %}<label class="block cursor-pointer rounded-xl bg-blue-600 px-4 py-3 text-center text-xs font-black text-white hover:bg-blue-500"><input id="deliveryImportFile" type="file" accept=".xlsx,.xlsm,.csv" class="hidden">Import Allocation File</label>{% else %}<div class="rounded-xl border border-slate-800 p-3 text-xs text-slate-500">Guest mode is view-only.</div>{% endif %}<a href="/delivery/template" class="block rounded-xl border border-slate-700 px-4 py-3 text-center text-xs font-black text-slate-300">Download Import Template</a></div>
-    <div id="allocationWarnings" class="mt-3 hidden rounded-xl border border-blue-400/30 bg-blue-500/10 p-3 text-[10px] text-blue-400"></div>
-    <div class="mt-3 rounded-xl border border-slate-800 p-3 text-[10px] leading-relaxed text-slate-500"><b class="text-slate-300">Planning rule:</b> Allocation is consumed once across Monday-Saturday. Class A loads first, then B and C. Any excess automatically rolls to the Branch's next saved trip; residual quantity after the final trip becomes Following-Week Backorder / Route Adjustment.</div>
-  </div>
+<section class="delivery-preparation-grid">
+  <article class="delivery-section delivery-setup-card delivery-route-card glass rounded-3xl border p-4 sm:p-5">
+    <div class="delivery-section-title">
+      <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="delivery-step">01</span><div><div class="delivery-stage-label">PLAN THE ROUTE</div><h3 class="mt-0.5 font-black">Weekly Truck Schedule</h3></div><span id="scheduleTripCount" class="rounded-full border border-slate-700 px-2 py-0.5 text-[9px] font-black text-slate-500">0 trips</span></div><p class="delivery-help mt-2">Define Day, Truck, Area and Branch delivery slots. A branch can appear more than once when it receives multiple deliveries per week.</p></div>
+      <button id="toggleScheduleBtn" type="button" aria-expanded="true" class="delivery-collapse-btn rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300">Minimize</button>
+    </div>
+    {% if role == 'admin' %}<div id="scheduleSaveState" class="mt-3 hidden rounded-xl border border-blue-400/30 bg-blue-500/10 px-3 py-2 text-[10px] font-bold text-blue-400">Unsaved schedule changes. Click Save Schedule to commit the route.</div>{% endif %}
+    <div id="weeklyScheduleBody">
+      <div class="delivery-inline-toolbar mt-4">
+        <div><div class="delivery-subpanel-title">Route Slots</div><div class="mt-1 text-[9px] text-slate-600">Day • Truck • Area • Branch • Weekly Frequency</div></div>
+        {% if role == 'admin' %}<div class="flex flex-wrap gap-2"><label class="cursor-pointer rounded-xl border border-slate-700 px-3 py-2.5 text-xs font-black text-slate-300 hover:border-blue-400/50 hover:text-blue-400"><input id="scheduleImportFile" type="file" accept=".xlsx,.xlsm,.csv" class="hidden">Import</label><button id="newTripAssignmentBtn" class="rounded-xl border border-blue-400/40 px-3 py-2.5 text-xs font-black text-blue-300 hover:bg-blue-500/10">+ Add Route Slot</button><button id="saveScheduleBtn" class="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white hover:bg-blue-500">Save Schedule</button></div>{% endif %}
+      </div>
+      <div id="scheduleRows" class="mt-3 space-y-2"></div>
+      {% if role == 'admin' %}<div id="scheduleImportWarnings" class="mt-3 hidden rounded-xl border border-blue-400/30 bg-blue-500/10 p-3 text-[10px] leading-relaxed text-blue-400"></div>{% endif %}
+    </div>
+  </article>
+
+  <article class="delivery-section delivery-setup-card delivery-demand-card glass rounded-3xl border p-4 sm:p-5">
+    <div class="delivery-section-title">
+      <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="delivery-step">02</span><div><div class="delivery-stage-label">LOAD THE DEMAND</div><h3 class="mt-0.5 font-black">Allocation Input</h3></div><span id="allocationCount" class="rounded-full border border-slate-700 px-2.5 py-1 text-[10px] font-black text-slate-400">0 rows</span></div><p class="delivery-help mt-2">Import Model, Branch, Quantity, Class and Remarks. The system maps demand to saved route slots and applies Class A-first loading automatically.</p></div>
+      <button id="toggleAllocationBtn" type="button" aria-expanded="true" class="delivery-collapse-btn rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300">Minimize</button>
+    </div>
+    <div id="allocationImportBody">
+      <div class="delivery-demand-actions mt-4">{% if role == 'admin' %}<label class="delivery-import-cta cursor-pointer rounded-2xl border p-4"><input id="deliveryImportFile" type="file" accept=".xlsx,.xlsm,.csv" class="hidden"><span class="delivery-import-icon">⇧</span><span><b>Import Allocation File</b><small>Excel / CSV demand input</small></span></label>{% else %}<div class="rounded-xl border border-slate-800 p-3 text-xs text-slate-500">Guest mode is view-only.</div>{% endif %}<a href="/delivery/template" class="delivery-template-link rounded-2xl border p-4"><span class="delivery-import-icon">↓</span><span><b>Download Template</b><small>Use the approved import structure</small></span></a></div>
+      <div id="allocationWarnings" class="mt-3 hidden rounded-xl border border-blue-400/30 bg-blue-500/10 p-3 text-[10px] text-blue-400"></div>
+      <div class="delivery-rule-card mt-3"><div class="delivery-rule-icon">A</div><div><b>Priority loading rule</b><p>Allocation is consumed once across Monday-Saturday. Class A loads before B and C. Excess moves to the branch's next saved trip; residual demand becomes following-week backorder.</p></div></div>
+      <div class="mt-3 flex flex-wrap gap-2">{% if role == 'admin' %}<button class="openAllocationControl rounded-xl border border-blue-400/40 px-3 py-2.5 text-xs font-black text-blue-400 hover:bg-blue-500/10">Manage Allocations</button><button id="clearAllocationsBtn" class="rounded-xl border border-red-500/40 px-3 py-2.5 text-xs font-black text-red-400 hover:bg-red-500/10">Clear Allocation</button>{% endif %}</div>
+    </div>
+  </article>
 </section>
 
-<section class="delivery-section delivery-plan-stage glass rounded-2xl border p-4 sm:p-5">
+<section class="delivery-section delivery-plan-stage glass rounded-3xl border p-4 sm:p-5 lg:p-6">
   <div class="delivery-section-title">
-    <div><div class="flex items-center gap-2"><span class="delivery-step">3</span><h3 class="font-black">Weekly Delivery Plan &amp; Capacity Control</h3><span id="deliveryPlanHealth" class="rounded-full border px-2.5 py-1 text-[9px] font-black">READY</span></div><p id="deliveryAnalysisScope" class="delivery-help mt-1"></p></div>
-    <div class="flex flex-wrap items-center justify-end gap-2"><div id="deliveryThresholds" class="text-[9px] font-bold uppercase tracking-wider text-slate-500"></div>{% if role == 'admin' %}<button class="openAllocationControl rounded-xl border border-blue-400/40 px-3 py-2.5 text-xs font-black text-blue-400 hover:border-blue-300 hover:bg-blue-500/10">Adjust Any Model</button>{% endif %}</div>
+    <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="delivery-step">03</span><div><div class="delivery-stage-label">BALANCE CAPACITY</div><h3 class="mt-0.5 text-lg font-black">Fleet Load &amp; Capacity Control</h3></div></div><p class="delivery-help mt-2">Review planned utilization by truck. Carryover and backorder are surfaced as exceptions so dispatch changes can be made before execution.</p></div>
+    <div class="flex flex-wrap items-center justify-end gap-2">{% if role == 'admin' %}<button class="openAllocationControl rounded-xl border border-blue-400/40 px-3 py-2.5 text-xs font-black text-blue-400 hover:bg-blue-500/10">Adjust / Rebalance Model</button>{% endif %}</div>
   </div>
   <div id="deliveryPlanPulse" class="delivery-plan-pulse mt-4"></div>
-  <div class="delivery-rollover-note mt-3 text-[10px] text-slate-500"><span class="font-black text-blue-400">AUTO-ROLLOVER:</span> Truck capacity is enforced by load index. Remaining units move to that Branch's next saved trip. If no later trip exists, the quantity is marked <span class="font-black text-red-500">Backorder / Following Week</span>. <span class="font-black text-blue-400">Every model can be adjusted at any time</span>, not only overloaded lines.</div>
+  <div class="delivery-rollover-note mt-4"><div class="delivery-rollover-icon">↻</div><div><b>Automatic rollover is active</b><p>Truck capacity is enforced by load index. Remaining units move to the branch's next saved trip. If no later trip exists, the quantity is marked Backorder / Following Week.</p></div></div>
+  <div class="delivery-board-divider mt-5"><span>Fleet Load Board</span></div>
   <div id="deliveryTruckGrid" class="delivery-truck-grid mt-4"></div><div id="deliveryUnassigned" class="mt-4"></div>
 </section>
 
-<section class="delivery-section glass rounded-2xl border p-4 sm:p-5"><div class="delivery-section-title"><div><div class="flex items-center gap-2"><span class="delivery-step">4</span><h3 class="font-black">Branch Dispatch Priority</h3></div><p class="delivery-help mt-1">Branch-centric view of the actual Monday-Saturday loading sequence. Use this for dispatch execution; truck cards above are the capacity-control view.</p></div><div class="text-[9px] font-black uppercase tracking-wider text-slate-600">Day • Trip • Truck • Branch • Planned • Carryover • Backorder</div></div><div id="deliveryPriorityList" class="delivery-priority-grid mt-4"></div></section>
+<section class="delivery-section delivery-dispatch-stage glass rounded-3xl border p-4 sm:p-5 lg:p-6">
+  <div class="delivery-section-title">
+    <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="delivery-step">04</span><div><div class="delivery-stage-label">EXECUTE THE PLAN</div><h3 class="mt-0.5 text-lg font-black">Branch Dispatch Sequence</h3></div></div><p class="delivery-help mt-2">Operational loading order by Day, Trip, Truck and Branch. Use this section during dispatch execution after capacity balancing is complete.</p></div>
+    <div class="delivery-dispatch-key">Day • Trip • Truck • Branch • Planned • Carryover • Backorder</div>
+  </div>
+  <div id="deliveryPriorityList" class="delivery-priority-grid mt-4"></div>
+</section>
 </main>
-
 {% include '_unified_import_modal.html' %}
 
 {% if role == 'admin' %}
@@ -370,9 +412,9 @@
 </div>
 <div id="toast" role="status" aria-live="polite" aria-atomic="true" class="fixed bottom-4 right-4 z-50 hidden max-w-sm rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm shadow-2xl"></div>
 <script>window.SCM_CONFIG=Object.freeze({isAdmin:{{ 'true' if role == 'admin' else 'false' }}});</script>
-<script src="/static/js/dashboard-app.js?v=2460"></script>
-<script src="/static/js/sidebar-data-ops.js?v=2460"></script>
-<script src="/static/js/unified-import.js?v=2460"></script>
+<script src="/static/js/dashboard-app.js?v=2462"></script>
+<script src="/static/js/sidebar-data-ops.js?v=2462"></script>
+<script src="/static/js/unified-import.js?v=2462"></script>
 </div>
 </div>
 </body></html>

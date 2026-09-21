@@ -322,3 +322,6 @@ html[data-theme="light"] .sidebar-subaction.danger:hover,html[data-theme="light"
     color:#bfdbfe;border-color:rgba(96,165,250,.22);background:linear-gradient(90deg,rgba(37,99,235,.15),rgba(59,130,246,.045));
   }
 }
+
+/* v2.46.1 Aging sortable-header light-mode integration */
+html[data-theme="light"] body.aging-module .sortable-data-table th{background:#f7fbff!important}html[data-theme="light"] body.aging-module .table-sort-button:hover,html[data-theme="light"] body.aging-module .table-sort-button:focus-visible{background:#eaf4ff;color:#1d4ed8}html[data-theme="light"] body.aging-module .sortable-data-table th[aria-sort="ascending"] .table-sort-button,html[data-theme="light"] body.aging-module .sortable-data-table th[aria-sort="descending"] .table-sort-button{background:#eaf4ff;color:#2563eb}

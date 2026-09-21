@@ -5,7 +5,7 @@ function Quote-DotEnv([string]$Value) {
     return "'" + ($Value -replace "'", "\\'") + "'"
 }
 
-Write-Host "SCM IDP Dashboard v2.46.0 - Professional Audit + Reliability Setup" -ForegroundColor Cyan
+Write-Host "SCM IDP Dashboard v2.46.1 - Professional Audit + Reliability Setup" -ForegroundColor Cyan
 Write-Host "No Supabase account or key is required." -ForegroundColor DarkGray
 Write-Host ""
 
