@@ -160,19 +160,33 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         if aged:
             aged_models[model] += qty
 
-        a = area_stats.setdefault(area, {"name": area, "qty": 0.0, "value": 0.0, "aged_90": 0.0, "aged_value": 0.0, "oldest": 0, "branches": set()})
+        a = area_stats.setdefault(area, {
+            "name": area, "qty": 0.0, "value": 0.0, "age_weight": 0.0,
+            "aged_90": 0.0, "aged_180": 0.0, "aged_365": 0.0,
+            "aged_value": 0.0, "oldest": 0, "branches": set(),
+        })
         a["qty"] += qty
         a["value"] += value
-        a["aged_90"] += qty if aged else 0
-        a["aged_value"] += value if aged else 0
+        a["age_weight"] += qty * age
+        a["aged_90"] += qty if age > 90 else 0
+        a["aged_180"] += qty if age > 180 else 0
+        a["aged_365"] += qty if age > 365 else 0
+        a["aged_value"] += value if age > 90 else 0
         a["oldest"] = max(a["oldest"], age)
         a["branches"].add(branch)
 
-        b = branch_stats.setdefault(branch, {"name": branch, "area": area, "qty": 0.0, "value": 0.0, "aged_90": 0.0, "aged_value": 0.0, "oldest": 0})
+        b = branch_stats.setdefault(branch, {
+            "name": branch, "area": area, "qty": 0.0, "value": 0.0, "age_weight": 0.0,
+            "aged_90": 0.0, "aged_180": 0.0, "aged_365": 0.0,
+            "aged_value": 0.0, "oldest": 0,
+        })
         b["qty"] += qty
         b["value"] += value
-        b["aged_90"] += qty if aged else 0
-        b["aged_value"] += value if aged else 0
+        b["age_weight"] += qty * age
+        b["aged_90"] += qty if age > 90 else 0
+        b["aged_180"] += qty if age > 180 else 0
+        b["aged_365"] += qty if age > 365 else 0
+        b["aged_value"] += value if age > 90 else 0
         b["oldest"] = max(b["oldest"], age)
 
         s = model_stats.setdefault(model, {
@@ -198,20 +212,36 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     area_ranking = []
     for s in area_stats.values():
         qty = s["qty"]
+        aged_pct = (s["aged_90"] / qty * 100) if qty else 0
+        area_risk_level, _ = _risk_level(aged_pct)
         area_ranking.append({
-            "name": s["name"], "qty": qty, "value": s["value"], "aged_90": s["aged_90"],
-            "aged_90_pct": (s["aged_90"] / qty * 100) if qty else 0,
-            "aged_value": s["aged_value"], "oldest": s["oldest"], "branch_count": len(s["branches"]),
+            "name": s["name"],
+            "qty": qty,
+            "value": s["value"],
+            "avg_age": (s["age_weight"] / qty) if qty else 0,
+            "aged_90": s["aged_90"],
+            "aged_90_pct": aged_pct,
+            "aged_180": s["aged_180"],
+            "aged_365": s["aged_365"],
+            "aged_value": s["aged_value"],
+            "oldest": s["oldest"],
+            "branch_count": len(s["branches"]),
+            "risk_level": area_risk_level,
         })
     area_ranking.sort(key=lambda x: (x["aged_90"], x["aged_90_pct"], x["aged_value"]), reverse=True)
 
     branch_ranking = []
     for s in branch_stats.values():
         qty = s["qty"]
+        aged_pct = (s["aged_90"] / qty * 100) if qty else 0
+        branch_risk_level, _ = _risk_level(aged_pct)
         branch_ranking.append({
-            "name": s["name"], "area": s["area"], "qty": qty, "value": s["value"], "aged_90": s["aged_90"],
-            "aged_90_pct": (s["aged_90"] / qty * 100) if qty else 0,
+            "name": s["name"], "area": s["area"], "qty": qty, "value": s["value"],
+            "avg_age": (s["age_weight"] / qty) if qty else 0,
+            "aged_90": s["aged_90"], "aged_90_pct": aged_pct,
+            "aged_180": s["aged_180"], "aged_365": s["aged_365"],
             "aged_value": s["aged_value"], "oldest": s["oldest"],
+            "risk_level": branch_risk_level,
         })
     branch_ranking.sort(key=lambda x: (x["aged_90"], x["aged_90_pct"], x["aged_value"]), reverse=True)
 
@@ -315,6 +345,43 @@ def filter_options(selected_area: str = "") -> dict[str, Any]:
         """).fetchall() if r[0]]
         brands = [r[0] for r in conn.execute("SELECT DISTINCT brand FROM units WHERE brand IS NOT NULL AND brand<>'' ORDER BY brand").fetchall() if r[0]]
     return {"branches": branches, "areas": areas, "brands": brands}
+
+
+def normalize_filters(filters: dict[str, str]) -> tuple[dict[str, str], dict[str, Any], list[str]]:
+    """Normalize dashboard/export filters against the current Aging dataset.
+
+    This prevents a stale Branch value from a previous Area selection from
+    silently producing an empty export. The dashboard UI already hides invalid
+    branches, so exports and CSV downloads must use the same normalized scope.
+    """
+    cleaned = {
+        "branch": str(filters.get("branch") or "").strip().upper(),
+        "area": str(filters.get("area") or "").strip(),
+        "brand": str(filters.get("brand") or "").strip(),
+        "std": str(filters.get("std") or "").strip(),
+        "q": str(filters.get("q") or "").strip(),
+    }
+    warnings: list[str] = []
+
+    # Validate Area first, then build the Branch list within that Area.
+    options = filter_options(cleaned["area"])
+    valid_areas = set(options.get("areas") or [])
+    if cleaned["area"] and cleaned["area"] not in valid_areas:
+        warnings.append(f"Area '{cleaned['area']}' is no longer present and was reset to All Areas.")
+        cleaned["area"] = ""
+        options = filter_options("")
+
+    valid_branches = {str(b.get("branch_key") or "").upper() for b in options.get("branches") or []}
+    if cleaned["branch"] and cleaned["branch"] not in valid_branches:
+        warnings.append("The selected Branch did not belong to the active Area and was reset to All Branches.")
+        cleaned["branch"] = ""
+
+    valid_brands = {str(b) for b in options.get("brands") or []}
+    if cleaned["brand"] and cleaned["brand"] not in valid_brands:
+        warnings.append(f"Brand '{cleaned['brand']}' is no longer present and was reset to All Brands.")
+        cleaned["brand"] = ""
+
+    return cleaned, options, warnings
 
 
 def executive_summary() -> dict[str, Any] | None:

@@ -1,0 +1,100 @@
+/* ============================================================================
+   SCM IDP Dashboard v2.47.5 · Visibility, Trend Legend & Aging UX Guard
+   Loaded last so legacy hard-coded dark colors cannot disappear in Light mode.
+   ============================================================================ */
+
+:root{
+  --kpi-actual:#3b82f6;
+  --kpi-trend:#93c5fd;
+  --kpi-legend-text:#d8e6f5;
+  --kpi-legend-muted:#a9bfd5;
+  --kpi-legend-bg:rgba(7,17,31,.58);
+  --kpi-legend-border:rgba(125,211,252,.16);
+}
+html[data-theme="light"]{
+  --kpi-actual:#1d4ed8;
+  --kpi-trend:#0369a1;
+  --kpi-legend-text:#173a5e;
+  --kpi-legend-muted:#526f8d;
+  --kpi-legend-bg:#f7fbff;
+  --kpi-legend-border:#c7dcf4;
+}
+
+/* KPI chart legend is deliberately outside Chart.js so its contrast and direction
+   icon remain stable when switching Light/Dark themes. */
+.kpi-chart-legend{
+  display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;
+  min-height:30px;margin:2px 0 2px;padding:3px 0;color:var(--kpi-legend-text);
+  font-size:10px;font-weight:700;line-height:1.2;
+}
+.kpi-legend-item{
+  display:inline-flex;align-items:center;gap:6px;min-height:25px;padding:4px 7px;
+  border:1px solid transparent;border-radius:999px;color:var(--kpi-legend-text);
+  white-space:nowrap;
+}
+.kpi-legend-item b{font-weight:750;color:inherit}
+.kpi-legend-line{display:inline-block;width:28px;height:0;flex:0 0 28px;border-top-width:3px;border-top-style:solid}
+.kpi-legend-line.trend{border-top-color:var(--kpi-trend);border-top-style:dashed}
+.kpi-legend-line.actual{border-top-color:var(--kpi-actual)}
+.kpi-direction-icon,.kpi-latest-icon{
+  display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 5px;border-radius:7px;
+  border:1px solid var(--kpi-legend-border);background:var(--kpi-legend-bg);
+  color:var(--kpi-trend);font-size:15px;font-weight:900;line-height:1;
+}
+.kpi-latest-move{border-color:var(--kpi-legend-border);background:var(--kpi-legend-bg);color:var(--kpi-legend-muted)}
+.kpi-latest-move .kpi-latest-icon{font-size:13px}
+.kpi-latest-move.positive .kpi-latest-icon,.kpi-latest-move.positive>span:last-child{color:#047857}
+.kpi-latest-move.negative .kpi-latest-icon,.kpi-latest-move.negative>span:last-child{color:#b91c1c}
+html[data-theme="dark"] .kpi-latest-move.positive .kpi-latest-icon,
+html[data-theme="dark"] .kpi-latest-move.positive>span:last-child{color:#6ee7b7}
+html[data-theme="dark"] .kpi-latest-move.negative .kpi-latest-icon,
+html[data-theme="dark"] .kpi-latest-move.negative>span:last-child{color:#fda4af}
+
+/* Aging KPI cards contained dark-theme hard-coded white text. Explicitly remap
+   every hierarchy level so the cards remain readable on white surfaces. */
+html[data-theme="light"] body.aging-module .kpi-card{color:#173a5e!important}
+html[data-theme="light"] body.aging-module .kpi-value{color:#0b1f3a!important}
+html[data-theme="light"] body.aging-module .kpi-value span{color:#526f8d!important}
+html[data-theme="light"] body.aging-module .kpi-label{color:#405f7d!important}
+html[data-theme="light"] body.aging-module .kpi-tag{color:#587794!important}
+html[data-theme="light"] body.aging-module .kpi-foot{color:#496984!important}
+html[data-theme="light"] body.aging-module .kpi-foot b{color:#173a5e!important}
+html[data-theme="dark"] body.aging-module .kpi-value{color:#f8fbff!important}
+html[data-theme="dark"] body.aging-module .kpi-value span{color:#a9bbcf!important}
+html[data-theme="dark"] body.aging-module .kpi-label{color:#9fb3c8!important}
+html[data-theme="dark"] body.aging-module .kpi-tag{color:#91a6bb!important}
+html[data-theme="dark"] body.aging-module .kpi-foot{color:#a9bbcf!important}
+html[data-theme="dark"] body.aging-module .kpi-foot b{color:#dce7f3!important}
+
+/* Additional Aging hard-coded text hierarchy that otherwise becomes too faint
+   after a theme switch. */
+html[data-theme="light"] body.aging-module .metric-mini-value,
+html[data-theme="light"] body.aging-module .focus-main,
+html[data-theme="light"] body.aging-module .focus-card h3,
+html[data-theme="light"] body.aging-module .insight-card h2,
+html[data-theme="light"] body.aging-module .insight-metrics b,
+html[data-theme="light"] body.aging-module .chart-head h2,
+html[data-theme="light"] body.aging-module .table-card-head h2{color:#0b1f3a!important}
+html[data-theme="light"] body.aging-module .metric-mini-label,
+html[data-theme="light"] body.aging-module .focus-card p,
+html[data-theme="light"] body.aging-module .insight-list li,
+html[data-theme="light"] body.aging-module .insight-metrics span,
+html[data-theme="light"] body.aging-module .chart-head p,
+html[data-theme="light"] body.aging-module .table-card-head p,
+html[data-theme="light"] body.aging-module .data-chip,
+html[data-theme="light"] body.aging-module .table-footer{color:#496984!important}
+html[data-theme="light"] body.aging-module .insight-list strong,
+html[data-theme="light"] body.aging-module .brand-text,
+html[data-theme="light"] body.aging-module .mono-cell{color:#244663!important}
+html[data-theme="light"] body.aging-module .legend-dot{color:#173a5e!important;background:#f4f9ff!important;border-color:#c7dcf4!important}
+
+/* Unit filter reloads preserve viewport in JS; avoid an animated correction that
+   looks like the page has jumped to the top. */
+html[data-theme="dark"] body.aging-module .unit-trace-controls.is-updating,
+html[data-theme="light"] body.aging-module .unit-trace-controls.is-updating{opacity:.78}
+
+@media(max-width:760px){
+  .kpi-chart-legend{justify-content:flex-start;gap:6px}
+  .kpi-legend-item{padding:4px 6px}
+  .kpi-legend-line{width:22px;flex-basis:22px}
+}

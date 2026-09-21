@@ -1,0 +1,172 @@
+/* ============================================================================
+   SCM IDP Dashboard v2.47.4 · Theme Readability + KPI Current-Date Guard
+   Final contrast layer loaded after all legacy/polish styles.
+   ============================================================================ */
+
+:root{
+  --readable-text:#f3f7fb;
+  --readable-muted:#b7c5d5;
+  --readable-subtle:#94a8bd;
+  --readable-border:#2b4663;
+  --readable-surface:#0a1628;
+  --readable-row:#0d1b2e;
+  --readable-accent:#8fc0ff;
+}
+html[data-theme="light"]{
+  --readable-text:#10243a;
+  --readable-muted:#405f7d;
+  --readable-subtle:#587794;
+  --readable-border:#c6d8e8;
+  --readable-surface:#ffffff;
+  --readable-row:#f7fbff;
+  --readable-accent:#1d4ed8;
+}
+
+/* Base readability: never let inherited legacy utility colors disappear. */
+html[data-theme="dark"] body{color:var(--readable-text)!important}
+html[data-theme="light"] body{color:var(--readable-text)!important}
+html[data-theme="dark"] p,
+html[data-theme="dark"] small,
+html[data-theme="dark"] .workspace-subtitle,
+html[data-theme="dark"] .delivery-help,
+html[data-theme="dark"] .hero-stat-note{color:var(--readable-muted)}
+html[data-theme="light"] p,
+html[data-theme="light"] small,
+html[data-theme="light"] .workspace-subtitle,
+html[data-theme="light"] .delivery-help,
+html[data-theme="light"] .hero-stat-note{color:var(--readable-muted)}
+
+/* Neutral text utilities: stronger AA-friendly contrast in both themes. */
+html[data-theme="dark"] [class~="text-slate-600"]{color:#9fb3c8!important}
+html[data-theme="dark"] [class~="text-slate-500"]{color:#afc0d2!important}
+html[data-theme="dark"] [class~="text-slate-400"]{color:#c4d0de!important}
+html[data-theme="dark"] [class~="text-slate-300"]{color:#dce5ef!important}
+html[data-theme="light"] [class~="text-slate-600"]{color:#405f7d!important}
+html[data-theme="light"] [class~="text-slate-500"]{color:#4e6d89!important}
+html[data-theme="light"] [class~="text-slate-400"]{color:#55738f!important}
+html[data-theme="light"] [class~="text-slate-300"]{color:#355775!important}
+html[data-theme="light"] [class~="text-slate-200"],
+html[data-theme="light"] [class~="text-slate-100"]{color:#244663!important}
+
+/* Semantic text remains readable, not pastel, on white surfaces. */
+html[data-theme="light"] [class~="text-blue-300"],
+html[data-theme="light"] [class~="text-blue-400"],
+html[data-theme="light"] [class~="text-blue-500"]{color:#1d4ed8!important}
+html[data-theme="light"] [class~="text-emerald-300"],
+html[data-theme="light"] [class~="text-emerald-400"],
+html[data-theme="light"] [class~="text-emerald-500"],
+html[data-theme="light"] [class~="text-green-400"],
+html[data-theme="light"] [class~="text-green-500"]{color:#047857!important}
+html[data-theme="light"] [class~="text-red-300"],
+html[data-theme="light"] [class~="text-red-400"],
+html[data-theme="light"] [class~="text-red-500"],
+html[data-theme="light"] [class~="text-rose-300"],
+html[data-theme="light"] [class~="text-rose-400"],
+html[data-theme="light"] [class~="text-rose-500"]{color:#b91c1c!important}
+html[data-theme="light"] [class~="text-amber-300"],
+html[data-theme="light"] [class~="text-amber-400"],
+html[data-theme="light"] [class~="text-amber-500"]{color:#92400e!important}
+
+/* Legacy hard-coded borders/backgrounds should follow theme tokens. */
+html[data-theme="light"] [class~="border-slate-900"],
+html[data-theme="light"] [class~="border-slate-800"],
+html[data-theme="light"] [class~="border-slate-800/70"],
+html[data-theme="light"] [class~="border-slate-700"]{border-color:var(--readable-border)!important}
+html[data-theme="dark"] [class~="border-slate-900"],
+html[data-theme="dark"] [class~="border-slate-800"],
+html[data-theme="dark"] [class~="border-slate-800/70"],
+html[data-theme="dark"] [class~="border-slate-700"]{border-color:#29445f!important}
+html[data-theme="light"] [class~="bg-slate-950/20"]{background:#f7fbff!important}
+html[data-theme="light"] [class~="bg-slate-900"]{background:#ffffff!important}
+html[data-theme="light"] #masterHead{background:#eef5fc!important;color:#405f7d!important}
+
+/* Form controls keep readable foreground/background after theme switches. */
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea{color:#eef5fb!important;background-color:#081425!important;border-color:#2b4663!important}
+html[data-theme="light"] input,
+html[data-theme="light"] select,
+html[data-theme="light"] textarea{color:#10243a!important;background-color:#fff!important;border-color:#bcd1e3!important}
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder{color:#91a6bb!important}
+html[data-theme="light"] input::placeholder,
+html[data-theme="light"] textarea::placeholder{color:#627f9b!important}
+
+/* Buttons with intentional saturated backgrounds retain white labels. */
+html[data-theme="light"] .bg-blue-600,
+html[data-theme="light"] .bg-blue-500,
+html[data-theme="light"] .bg-red-500,
+html[data-theme="light"] .delivery-primary-action,
+html[data-theme="light"] .btn-primary,
+html[data-theme="light"] .login-button{color:#fff!important}
+
+/* Main dashboard surfaces, row text and modal hierarchy. */
+html[data-theme="light"] .glass,
+html[data-theme="light"] .theme-surface,
+html[data-theme="light"] .theme-row,
+html[data-theme="light"] .status-chart-panel,
+html[data-theme="light"] .order-review-panel,
+html[data-theme="light"] .delivery-subpanel,
+html[data-theme="light"] .delivery-day-card,
+html[data-theme="light"] .delivery-pulse-card{color:#183650!important}
+html[data-theme="dark"] .glass,
+html[data-theme="dark"] .theme-surface,
+html[data-theme="dark"] .theme-row,
+html[data-theme="dark"] .status-chart-panel,
+html[data-theme="dark"] .order-review-panel,
+html[data-theme="dark"] .delivery-subpanel,
+html[data-theme="dark"] .delivery-day-card,
+html[data-theme="dark"] .delivery-pulse-card{color:#e8eff7!important}
+html[data-theme="light"] .modal-panel{background:#fff!important;color:#173650!important;border-color:#c6d8e8!important}
+html[data-theme="light"] .modal-panel h1,
+html[data-theme="light"] .modal-panel h2,
+html[data-theme="light"] .modal-panel h3,
+html[data-theme="light"] .modal-panel h4{color:#10243a!important}
+
+/* Aging module: remove remaining dark-only heading and helper colors in Light mode. */
+html[data-theme="light"] body.aging-module .text-white,
+html[data-theme="light"] body.aging-module h1,
+html[data-theme="light"] body.aging-module h2,
+html[data-theme="light"] body.aging-module h3,
+html[data-theme="light"] body.aging-module h4{color:#10243a!important}
+html[data-theme="light"] body.aging-module .eyebrow{color:#1d4ed8!important}
+html[data-theme="light"] body.aging-module .nav-link{color:#496984!important}
+html[data-theme="light"] body.aging-module .nav-link:hover,
+html[data-theme="light"] body.aging-module .nav-link.active{color:#1d4ed8!important}
+html[data-theme="dark"] body.aging-module .nav-link{color:#b4c4d5!important}
+html[data-theme="dark"] body.aging-module .nav-link:hover,
+html[data-theme="dark"] body.aging-module .nav-link.active{color:#d9efff!important}
+
+/* Charts + KPI latest-date cue. */
+.kpi-latest-date{
+  display:inline-flex;align-items:center;gap:7px;min-height:28px;padding:5px 9px;
+  border:1px solid rgba(96,165,250,.22);border-radius:999px;
+  background:rgba(59,130,246,.07);font-size:10px;white-space:nowrap;
+}
+.kpi-latest-date span{color:var(--readable-subtle);font-weight:650}
+.kpi-latest-date strong{color:var(--readable-accent);font-weight:750;font-variant-numeric:tabular-nums}
+html[data-theme="light"] .kpi-latest-date{background:#edf5ff;border-color:#c7ddf5}
+html[data-theme="dark"] .kpi-latest-date{background:rgba(59,130,246,.08);border-color:rgba(96,165,250,.24)}
+.kpi-visual{color:var(--readable-text)!important}
+
+/* Login page final guard. */
+html[data-theme="light"] .login-brand h1,
+html[data-theme="light"] .login-form-wrap h2{color:#10243a!important}
+html[data-theme="light"] .login-brand p,
+html[data-theme="light"] .login-form-wrap p,
+html[data-theme="light"] .guest-link,
+html[data-theme="light"] .theme-btn{color:#496984!important}
+html[data-theme="dark"] .login-brand p,
+html[data-theme="dark"] .login-form-wrap p,
+html[data-theme="dark"] .guest-link,
+html[data-theme="dark"] .theme-btn{color:#b2c5d8!important}
+
+/* Logo/image protection in every theme. */
+img{opacity:1!important;filter:none!important}
+.sidebar-logo-img,.sidebar-logo-mini,.login-brand img,.mobile-command-bar img{
+  background:#fff!important;filter:none!important;opacity:1!important
+}
+
+@media(max-width:760px){
+  .kpi-latest-date{white-space:normal;line-height:1.2;align-items:flex-start;flex-direction:column;gap:1px;border-radius:10px}
+}

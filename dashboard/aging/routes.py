@@ -8,7 +8,7 @@ from pathlib import Path
 
 from flask import Blueprint, Response, flash, redirect, render_template, request, send_file, session, url_for
 
-from .analytics import filter_options, filtered_dataset, summarize
+from .analytics import filtered_dataset, summarize, normalize_filters
 from .db import connect, init_db
 from .exporter import build_aging_report_xlsx
 
@@ -87,6 +87,26 @@ def get_unit_filters() -> dict[str, str]:
     }
 
 
+def _export_args(filters: dict[str, str], as_of: str, basis: str, unit_filters: dict[str, str]) -> dict[str, str]:
+    """Return a canonical query string for export/download links.
+
+    Never reuse raw request.args because it may still contain a stale Branch
+    after the Area dropdown has been changed.
+    """
+    return {
+        "as_of": as_of,
+        "basis": basis,
+        "area": filters.get("area", ""),
+        "branch": filters.get("branch", ""),
+        "brand": filters.get("brand", ""),
+        "std": filters.get("std", ""),
+        "q": filters.get("q", ""),
+        "unit_age": unit_filters.get("age", "all"),
+        "unit_sort": unit_filters.get("sort", "oldest"),
+        "unit_q": unit_filters.get("q", ""),
+    }
+
+
 def _unit_query_match(row: dict, query: str) -> bool:
     if not query:
         return True
@@ -159,10 +179,7 @@ def dashboard():
     basis = request.args.get("basis", "branch")
     if basis not in {"branch", "company"}:
         basis = "branch"
-    options = filter_options(filters.get("area", ""))
-    valid_branch_keys = {b["branch_key"] for b in options["branches"]}
-    if filters.get("branch") and filters["branch"] not in valid_branch_keys:
-        filters["branch"] = ""
+    filters, options, filter_warnings = normalize_filters(filters)
     rows = filtered_dataset(filters, as_of, basis)
     summary = summarize(rows)
     unit_filters = get_unit_filters()
@@ -184,6 +201,8 @@ def dashboard():
         unit_filters=unit_filters,
         unit_row_count=len(unit_rows),
         unit_band_counts=band_counts,
+        export_args=_export_args(filters, as_of.isoformat(), basis, unit_filters),
+        filter_warnings=filter_warnings,
         role="admin" if _is_admin() else "guest",
     )
 
@@ -209,6 +228,9 @@ def export_csv():
     as_of_str = request.args.get("as_of") or current_as_of()
     as_of = parse_as_of(as_of_str)
     basis = request.args.get("basis", "branch")
+    if basis not in {"branch", "company"}:
+        basis = "branch"
+    filters, _options, _filter_warnings = normalize_filters(filters)
     rows = filtered_dataset(filters, as_of, basis)
     rows = apply_unit_filters(rows, get_unit_filters())
     sio = io.StringIO()
@@ -242,6 +264,7 @@ def export_xlsx():
     if basis not in {"branch", "company"}:
         basis = "branch"
 
+    filters, _options, filter_warnings = normalize_filters(filters)
     rows = filtered_dataset(filters, as_of, basis)
     summary = summarize(rows)
     unit_rows = apply_unit_filters(rows, unit_filters)
@@ -256,6 +279,8 @@ def export_xlsx():
         filters=filters,
         unit_filters=unit_filters,
         source_filename=source_filename,
+        filter_warnings=filter_warnings,
+        base_row_count=len(rows),
     )
     filename = f"Motorcycle_Aging_Intelligence_{as_of.isoformat()}.xlsx"
     return send_file(

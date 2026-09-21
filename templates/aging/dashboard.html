@@ -94,6 +94,12 @@
   </article>
 </section>
 
+{% if filter_warnings %}
+<div class="aging-filter-repair-notice mt-4" role="status">
+  <strong>Filter scope corrected for this view.</strong> {{ filter_warnings|join(' ') }} Export links now use the corrected scope.
+</div>
+{% endif %}
+
 <form id="filterForm" method="get" class="filter-panel mt-6" data-auto-filter>
   <div class="filter-panel-head">
     <div>
@@ -103,8 +109,8 @@
     <div class="flex flex-wrap items-center gap-2">
       <span id="filterStatus" class="filter-status"><span class="status-dot"></span>Auto update on</span>
       <a class="btn-secondary" href="{{ url_for('aging.dashboard') }}">Reset Filters</a>
-      <a class="btn-primary aging-export-primary" href="{{ url_for('aging.export_xlsx', **request.args) }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>Export Aging Excel</a>
-      <a class="btn-secondary" href="{{ url_for('aging.export_csv', **request.args) }}">CSV Data</a>
+      <a class="btn-primary aging-export-primary" href="{{ url_for('aging.export_xlsx', **export_args) }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>Export Aging Excel</a>
+      <a class="btn-secondary" href="{{ url_for('aging.export_csv', **export_args) }}">CSV Data</a>
     </div>
   </div>
   <div class="filter-grid filter-grid-seven">
@@ -116,7 +122,7 @@
     <label class="field filter-search"><span>Standard Description</span><div class="input-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4" stroke-linecap="round"/></svg><input class="auto-filter-text" name="std" value="{{ filters.std }}" placeholder="Search model..."></div></label>
     <label class="field filter-search"><span>Engine / Chassis / Barcode</span><div class="input-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4" stroke-linecap="round"/></svg><input class="auto-filter-text" name="q" value="{{ filters.q }}" placeholder="Search unit..."></div></label>
   </div>
-  <div class="filter-foot">The unit table is simplified to show the exact <b>Age Days</b>, while the charts summarize aging automatically for management review.</div>
+  <div class="filter-foot">The unit table is simplified to show the exact <b>Age Days</b>, while the charts summarize aging automatically for management review. <b>Excel Export:</b> Executive Summary + Per Area + Model Intelligence + Unit Detail + Data Dictionary.</div>
 </form>
 
 {% if row_count > 0 %}
@@ -356,7 +362,7 @@
       <span>Actions</span>
       <div>
         <a class="btn-secondary unit-filter-reset" href="{{ url_for('aging.dashboard', as_of=as_of, basis=basis, area=filters.area, branch=filters.branch, brand=filters.brand, std=filters.std, q=filters.q) }}#unitTrace">Reset Unit View</a>
-        <a class="btn-primary aging-export-primary" href="{{ url_for('aging.export_xlsx', **request.args) }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>Export Excel</a>
+        <a class="btn-primary aging-export-primary" href="{{ url_for('aging.export_xlsx', **export_args) }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>Export Excel</a>
       </div>
     </div>
   </form>
@@ -388,7 +394,7 @@
       </tbody>
     </table>
   </div>
-  <div class="table-footer">The screen is capped at 250 rows for speed. <a href="{{ url_for('aging.export_xlsx', **request.args) }}">Export the full filtered Aging workbook →</a> <span class="mx-2">·</span><a href="{{ url_for('aging.export_csv', **request.args) }}">Raw CSV</a></div>
+  <div class="table-footer">The screen is capped at 250 rows for speed. <a href="{{ url_for('aging.export_xlsx', **export_args) }}">Export the full Aging workbook with Per-Area Intelligence →</a> <span class="mx-2">·</span><a href="{{ url_for('aging.export_csv', **export_args) }}">Raw CSV</a></div>
 </section>
 {% else %}
 <section class="empty-state-premium mt-6">

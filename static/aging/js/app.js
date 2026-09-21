@@ -26,8 +26,44 @@
     const sort=document.getElementById('unitSortFilter');
     const bandButtons=[...document.querySelectorAll('[data-unit-band]')];
     let unitTimer=null,unitSubmitting=false;
+    const UNIT_VIEW_KEY='scm-aging-unit-view-v1';
+    const rememberUnitViewport=()=>{
+      try{
+        const active=document.activeElement;
+        sessionStorage.setItem(UNIT_VIEW_KEY,JSON.stringify({
+          at:Date.now(),
+          viewportTop:unitForm.getBoundingClientRect().top,
+          focusId:active&&active.id?active.id:''
+        }));
+      }catch(_){ }
+    };
+    const restoreUnitViewport=()=>{
+      let saved=null;
+      try{saved=JSON.parse(sessionStorage.getItem(UNIT_VIEW_KEY)||'null');sessionStorage.removeItem(UNIT_VIEW_KEY)}catch(_){saved=null}
+      if(!saved||Date.now()-Number(saved.at||0)>15000)return;
+      const restore=()=>{
+        const desired=Number(saved.viewportTop);
+        if(!Number.isFinite(desired))return;
+        const current=unitForm.getBoundingClientRect().top;
+        const delta=current-desired;
+        if(Math.abs(delta)>1){
+          const html=document.documentElement,previous=html.style.scrollBehavior;
+          html.style.scrollBehavior='auto';
+          window.scrollBy(0,delta);
+          html.style.scrollBehavior=previous;
+        }
+        if(saved.focusId){
+          const target=document.getElementById(saved.focusId);
+          try{target?.focus({preventScroll:true})}catch(_){target?.focus()}
+        }
+      };
+      window.requestAnimationFrame(()=>window.requestAnimationFrame(restore));
+      window.setTimeout(restore,90);
+    };
+    window.addEventListener('load',restoreUnitViewport,{once:true});
     const submitUnit=()=>{
       if(unitSubmitting)return;
+      rememberUnitViewport();
       unitSubmitting=true;
       unitForm.classList.add('is-updating');
       unitForm.requestSubmit();

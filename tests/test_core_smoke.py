@@ -427,6 +427,7 @@ class DashboardCoreSmokeTests(unittest.TestCase):
             "detailed_bucket_labels": ["0-30 DAYS", "31-60 DAYS", "61-90 DAYS", "91-180 DAYS", "181-365 DAYS", "366+ DAYS"],
             "detailed_bucket_values": [1, 2, 2, 2, 2, 1],
             "top_area": {"name": "AREA I", "aged_90": 5, "aged_90_pct": 50, "aged_value": 250000, "oldest": 430, "branch_count": 2},
+            "area_ranking_all": [{"name": "AREA I", "risk_level": "High", "branch_count": 2, "qty": 10, "value": 500000, "avg_age": 150, "aged_90": 5, "aged_90_pct": 50, "aged_value": 250000, "aged_180": 3, "aged_365": 1, "oldest": 430}],
             "top_branch": {"name": "BRANCH A", "area": "AREA I", "aged_90": 3, "aged_90_pct": 60, "aged_value": 150000, "oldest": 430},
             "top_model": {"standard_description": "MODEL X", "aged_90": 4, "aged_90_pct": 80, "aged_value": 200000, "oldest": 430, "branch_count": 2, "area_count": 1},
             "model_summary_all": [{"standard_description": "MODEL X", "risk_level": "High", "qty": 5, "avg_age": 220, "aged_90": 4, "aged_90_pct": 80, "aged_value": 200000, "oldest": 430, "branch_count": 2, "area_count": 1}],
@@ -435,15 +436,57 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         payload = build_aging_report_xlsx(summary=summary, unit_rows=units, as_of="2026-09-21", basis="branch", filters={}, unit_filters={"age": "all", "sort": "oldest", "q": ""}, source_filename="MC.xlsx")
         with zipfile.ZipFile(BytesIO(payload), "r") as archive:
             self.assertIsNone(archive.testzip())
-            self.assertIn("xl/worksheets/sheet4.xml", archive.namelist())
+            self.assertIn("xl/worksheets/sheet5.xml", archive.namelist())
         with tempfile.NamedTemporaryFile(suffix=".xlsx") as temp:
             temp.write(payload); temp.flush()
             wb = load_workbook(temp.name, read_only=False)
-            self.assertEqual(wb.sheetnames, ["Executive Summary", "Model Intelligence", "Unit Detail", "Data Dictionary"])
+            self.assertEqual(wb.sheetnames, ["Executive Summary", "Area Intelligence", "Model Intelligence", "Unit Detail", "Data Dictionary"])
+            self.assertEqual(wb["Area Intelligence"].freeze_panes, "C6")
+            self.assertEqual(wb["Area Intelligence"].auto_filter.ref, "A5:M6")
+            self.assertEqual(wb["Area Intelligence"]["B6"].value, "AREA I")
             self.assertEqual(wb["Model Intelligence"].freeze_panes, "C5")
             self.assertEqual(wb["Unit Detail"].freeze_panes, "C6")
             self.assertEqual(wb["Unit Detail"].auto_filter.ref, "A5:N6")
             wb.close()
+
+
+    def test_ytd_chart_keeps_months_compact_and_marks_latest_date(self):
+        js = (ROOT / "static" / "js" / "dashboard-app.js").read_text(encoding="utf-8")
+        self.assertIn("i===labels.length-1?shortCurrentPeriodLabel(label):monthOnly(label)", js)
+        self.assertIn("Latest data", js)
+        self.assertIn("longPeriodLabel(d.labels[d.labels.length-1])", js)
+        bundled = DashboardStore(WORKBOOK)
+        latest = next(iter(bundled.kpis.values()))["ytd"]["labels"][-1]
+        self.assertEqual(latest, "Sep 21, 2026")
+
+    def test_v2474_theme_readability_guard_is_loaded_everywhere(self):
+        guard = (ROOT / "static" / "css" / "v2474-theme-readability.css").read_text(encoding="utf-8")
+        for rel in ["templates/index.html", "templates/aging/base.html", "templates/login.html"]:
+            self.assertIn("v2474-theme-readability.css", (ROOT / rel).read_text(encoding="utf-8"), rel)
+        self.assertIn('html[data-theme="light"] [class~="text-slate-500"]', guard)
+        self.assertIn('html[data-theme="light"] .bg-blue-600', guard)
+        self.assertIn('.kpi-latest-date', guard)
+
+    def test_v2475_theme_visibility_guard_and_custom_trend_legend(self):
+        guard = (ROOT / "static" / "css" / "v2475-visibility-fix.css").read_text(encoding="utf-8")
+        js = (ROOT / "static" / "js" / "dashboard-app.js").read_text(encoding="utf-8")
+        for rel in ["templates/index.html", "templates/aging/base.html", "templates/login.html"]:
+            self.assertIn("v2475-visibility-fix.css", (ROOT / rel).read_text(encoding="utf-8"), rel)
+        self.assertIn('body.aging-module .kpi-value{color:#0b1f3a!important}', guard)
+        self.assertIn('.kpi-legend-line.trend', guard)
+        self.assertIn("const trendIcon=trendDirection==='up'?'↗':trendDirection==='down'?'↘':'→'", js)
+        self.assertIn('data-kpi-chart-legend', js)
+        self.assertIn("legend:{display:false}", js)
+        self.assertIn("trend:'#0369a1'", js)
+
+    def test_aging_unit_filter_preserves_viewport_across_reload(self):
+        aging_js = (ROOT / "static" / "aging" / "js" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("scm-aging-unit-view-v1", aging_js)
+        self.assertIn("rememberUnitViewport()", aging_js)
+        self.assertIn("restoreUnitViewport", aging_js)
+        self.assertIn("viewportTop:unitForm.getBoundingClientRect().top", aging_js)
+        self.assertIn("window.scrollBy(0,delta)", aging_js)
+        self.assertIn("focus({preventScroll:true})", aging_js)
 
     def test_theme_contrast_guard_is_loaded_for_main_aging_and_login(self):
         guard = (ROOT / "static" / "css" / "v2471-theme-contrast.css").read_text(encoding="utf-8")

@@ -115,6 +115,8 @@ def build_aging_report_xlsx(
     filters: dict[str, str],
     unit_filters: dict[str, str],
     source_filename: str = "",
+    filter_warnings: list[str] | None = None,
+    base_row_count: int | None = None,
 ) -> bytes:
     """Build a management-ready multi-sheet Motorcycle Aging workbook.
 
@@ -124,6 +126,9 @@ def build_aging_report_xlsx(
     generated = datetime.now().astimezone()
     generated_utc = generated.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     basis_label = "Branch / Created On" if basis == "branch" else "Company / Incoming Date"
+    filter_warnings = list(filter_warnings or [])
+    if base_row_count is None:
+        base_row_count = len(unit_rows)
 
     # ------------------------------------------------------------------
     # Sheet 1: Executive Summary
@@ -243,6 +248,8 @@ def build_aging_report_xlsx(
         ("Trace Age Band", unit_filters.get("age") or "all"),
         ("Trace Search", unit_filters.get("q") or "None"),
         ("Trace Sort", unit_filters.get("sort") or "oldest"),
+        ("Dashboard Rows", f"{int(base_row_count):,}"),
+        ("Scope Repair", " | ".join(filter_warnings) if filter_warnings else "None"),
     ]
     # Build two filter pairs per row so the exported context stays compact.
     for pair_idx in range(0, len(filter_pairs), 2):
@@ -265,7 +272,59 @@ def build_aging_report_xlsx(
     )
 
     # ------------------------------------------------------------------
-    # Sheet 2: Model Intelligence
+    # Sheet 2: Area Intelligence
+    # ------------------------------------------------------------------
+    area_rows_data = summary.get("area_ranking_all") or summary.get("area_ranking") or []
+    area_rows: list[str] = [
+        _row(1, [_cell("A1", "PER-AREA AGING INTELLIGENCE", 1)], height=28),
+        _row(2, [_cell("A2", f"As of {as_of} · {basis_label} · Areas ranked by 91+ aging exposure", 2)], height=20),
+        _row(3, [_cell("A3", "Use this sheet to compare aging exposure, capital at risk, severity, and branch coverage by Area.", 22)], height=20),
+        _row(5, [_cell(f"{_col_letter(i)}5", h, 9) for i, h in enumerate([
+            "Rank", "Area", "Exposure", "Branches", "Units", "Inventory Value", "Avg Age",
+            "91+ Units", "91+ %", "Aged Value", "180+ Units", "366+ Units", "Oldest Days"
+        ], start=1)], height=24),
+    ]
+    area_merges = ["A1:M1", "A2:M2", "A3:M3"]
+    if not area_rows_data:
+        area_rows.append(_row(6, [
+            _cell("A6", "No records matched the current dashboard filters. Review Applied Filters in Executive Summary.", 17),
+        ], height=28))
+        area_merges.append("A6:M6")
+    for idx, a in enumerate(area_rows_data, start=1):
+        r = 5 + idx
+        pct = float(a.get("aged_90_pct", 0) or 0) / 100
+        style = 10 if idx % 2 else 11
+        risk = str(a.get("risk_level") or ("High" if pct >= .40 else "Watch" if pct >= .20 else "Controlled"))
+        area_rows.append(_row(r, [
+            _cell(f"A{r}", idx, style, numeric=True),
+            _cell(f"B{r}", a.get("name"), style),
+            _cell(f"C{r}", risk, _risk_style(risk)),
+            _cell(f"D{r}", a.get("branch_count", 0), style, numeric=True),
+            _cell(f"E{r}", a.get("qty", 0), style, numeric=True),
+            _cell(f"F{r}", _money(a.get("value", 0)), 7, numeric=True),
+            _cell(f"G{r}", a.get("avg_age", 0), style, numeric=True),
+            _cell(f"H{r}", a.get("aged_90", 0), style, numeric=True),
+            _cell(f"I{r}", pct, 8, numeric=True),
+            _cell(f"J{r}", _money(a.get("aged_value", 0)), 7, numeric=True),
+            _cell(f"K{r}", a.get("aged_180", 0), style, numeric=True),
+            _cell(f"L{r}", a.get("aged_365", 0), style, numeric=True),
+            _cell(f"M{r}", a.get("oldest", 0), _age_style(int(a.get("oldest", 0) or 0)), numeric=True),
+        ], height=21))
+    area_end = max(6, 5 + len(area_rows_data))
+    sheet2 = _sheet_xml(
+        area_rows,
+        [(1, 7), (2, 22), (3, 13), (4, 10), (5, 10), (6, 17), (7, 10),
+         (8, 11), (9, 10), (10, 17), (11, 11), (12, 11), (13, 12)],
+        merges=area_merges,
+        autofilter=f"A5:M{area_end}",
+        freeze_rows=5,
+        freeze_cols=2,
+        top_left="C6",
+        orientation="landscape",
+    )
+
+    # ------------------------------------------------------------------
+    # Sheet 3: Model Intelligence
     # ------------------------------------------------------------------
     model_rows_data = summary.get("model_summary_all") or summary.get("model_summary") or []
     model_rows: list[str] = [
@@ -276,6 +335,11 @@ def build_aging_report_xlsx(
         ], start=1)], height=24),
     ]
     model_merges = ["A1:K1", "A2:K2"]
+    if not model_rows_data:
+        model_rows.append(_row(5, [
+            _cell("A5", "No model records matched the current dashboard filters. Review Applied Filters in Executive Summary.", 17),
+        ], height=28))
+        model_merges.append("A5:K5")
     for idx, m in enumerate(model_rows_data, start=1):
         r = 4 + idx
         pct = float(m.get("aged_90_pct", 0) or 0) / 100
@@ -293,8 +357,8 @@ def build_aging_report_xlsx(
             _cell(f"J{r}", m.get("branch_count", 0), style, numeric=True),
             _cell(f"K{r}", m.get("area_count", 0), style, numeric=True),
         ], height=21))
-    model_end = max(4, 4 + len(model_rows_data))
-    sheet2 = _sheet_xml(
+    model_end = max(5, 4 + len(model_rows_data))
+    sheet3 = _sheet_xml(
         model_rows,
         [(1, 7), (2, 42), (3, 13), (4, 10), (5, 10), (6, 11), (7, 10), (8, 16), (9, 10), (10, 10), (11, 9)],
         merges=model_merges,
@@ -306,7 +370,7 @@ def build_aging_report_xlsx(
     )
 
     # ------------------------------------------------------------------
-    # Sheet 3: Unit Detail
+    # Sheet 4: Unit Detail
     # ------------------------------------------------------------------
     unit_headers = [
         "Branch", "Area", "Standard Description", "Brand", "Engine No.", "Chassis", "Created On",
@@ -319,6 +383,12 @@ def build_aging_report_xlsx(
         _row(5, [_cell(f"{_col_letter(i)}5", h, 9) for i, h in enumerate(unit_headers, start=1)], height=24),
     ]
     unit_merges = ["A1:N1", "A2:N2", "A3:N3"]
+    if not unit_rows:
+        reason = "No units matched the Unit-Level Traceability filters." if base_row_count else "No records matched the current dashboard filters."
+        unit_sheet_rows.append(_row(6, [
+            _cell("A6", reason + " Review Applied Filters in Executive Summary.", 17),
+        ], height=28))
+        unit_merges.append("A6:N6")
     for idx, u in enumerate(unit_rows, start=1):
         r = 5 + idx
         style = 10 if idx % 2 else 11
@@ -339,8 +409,8 @@ def build_aging_report_xlsx(
             _cell(f"M{r}", u.get("location"), style),
             _cell(f"N{r}", u.get("barcode"), style),
         ], height=20))
-    unit_end = max(5, 5 + len(unit_rows))
-    sheet3 = _sheet_xml(
+    unit_end = max(6, 5 + len(unit_rows))
+    sheet4 = _sheet_xml(
         unit_sheet_rows,
         [(1, 24), (2, 14), (3, 42), (4, 14), (5, 22), (6, 23), (7, 13), (8, 13), (9, 10), (10, 8), (11, 14), (12, 16), (13, 22), (14, 19)],
         merges=unit_merges,
@@ -352,7 +422,7 @@ def build_aging_report_xlsx(
     )
 
     # ------------------------------------------------------------------
-    # Sheet 4: Data Dictionary
+    # Sheet 5: Data Dictionary
     # ------------------------------------------------------------------
     dictionary = [
         ("Branch", "Branch currently holding or assigned to the motorcycle unit."),
@@ -387,7 +457,7 @@ def build_aging_report_xlsx(
     dict_rows.append(_row(notes_start + 3, [_cell(f"A{notes_start+3}", "181–365 Days", 15), _cell(f"B{notes_start+3}", "High aging exposure", 10)]))
     dict_rows.append(_row(notes_start + 4, [_cell(f"A{notes_start+4}", "366+ Days", 16), _cell(f"B{notes_start+4}", "Critical management review", 10)]))
     dict_merges = ["A1:B1", "A2:B2", f"A{notes_start}:B{notes_start}"]
-    sheet4 = _sheet_xml(
+    sheet5 = _sheet_xml(
         dict_rows,
         [(1, 25), (2, 92)],
         merges=dict_merges,
@@ -458,9 +528,10 @@ def build_aging_report_xlsx(
 
     sheets = [
         ("Executive Summary", sheet1),
-        ("Model Intelligence", sheet2),
-        ("Unit Detail", sheet3),
-        ("Data Dictionary", sheet4),
+        ("Area Intelligence", sheet2),
+        ("Model Intelligence", sheet3),
+        ("Unit Detail", sheet4),
+        ("Data Dictionary", sheet5),
     ]
     content_types = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">', '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>', '<Default Extension="xml" ContentType="application/xml"/>', '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>', '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>', '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>', '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>']
     for i in range(1, len(sheets) + 1):
@@ -486,7 +557,7 @@ def build_aging_report_xlsx(
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 <dc:title>Motorcycle Aging Intelligence</dc:title><dc:creator>SCM IDP Control Tower</dc:creator><dc:subject>Aging management export</dc:subject><dcterms:created xsi:type="dcterms:W3CDTF">{generated_utc}</dcterms:created></cp:coreProperties>'''
     app = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>SCM IDP Dashboard</Application><AppVersion>2.47.1</AppVersion></Properties>'''
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>SCM IDP Dashboard</Application><AppVersion>2.47.5</AppVersion></Properties>'''
 
     out = BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
