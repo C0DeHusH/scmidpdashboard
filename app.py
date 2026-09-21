@@ -30,18 +30,22 @@ from dashboard.cloud_state import VercelBlobState
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env")
 DATA_FILE = BASE / "data" / "MC_Dashboard_IMPORT.xlsx"
-APP_VERSION = "2.46.5"
+APP_VERSION = "2.46.6"
 IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
 
-# Vercel's deployed project files are not a durable writable data directory.
-# Keep openpyxl/sqlite working files in the function's disposable /tmp area and
-# use Private Vercel Blob as the durable source of truth. Local/Render behavior
-# remains unchanged unless SCM_DATA_DIR is explicitly configured.
-if IS_VERCEL and not str(os.environ.get("SCM_DATA_DIR") or "").strip():
+# Vercel's deployed project filesystem is read-only except for the function's
+# disposable system temp area.  Always force runtime working state under /tmp on
+# Vercel, even if an older deployment still has SCM_DATA_DIR configured.  Durable
+# state lives in Private Vercel Blob; SCM_DATA_DIR remains supported on Local/Render.
+if IS_VERCEL:
     os.environ["SCM_DATA_DIR"] = str(Path(tempfile.gettempdir()) / "scm-idp-dashboard")
 STATE_ROOT = Path(os.environ.get("SCM_DATA_DIR", str(BASE / "uploads")))
 STATE_ROOT.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR = STATE_ROOT
+# Incoming multipart files are isolated from dashboard state.  This prevents a
+# stale/custom SCM_DATA_DIR from ever affecting the receive-upload stage.
+IMPORT_TMP_DIR = Path(tempfile.gettempdir()) / "scm-idp-dashboard-imports"
+IMPORT_TMP_DIR.mkdir(parents=True, exist_ok=True)
 ACTIVE_IMPORT = UPLOAD_DIR / "active_import.xlsx"
 EMPTY_STATE_MARKER = STATE_ROOT / ".scm_no_data"
 MANAGEMENT_ALLOCATIONS = STATE_ROOT / "management_allocations.json"
@@ -49,16 +53,20 @@ DELIVERY_STATE_DIR = STATE_ROOT / "delivery"
 
 cloud_state = VercelBlobState()
 CLOUD_BOOT_ERROR = ""
+CLOUD_BOOT_HYDRATED = False
 try:
-    # Hydrate before importing the Aging blueprint because its module-level DB
-    # initialization must see the durable SQLite snapshot on a cold start.
-    cloud_state.hydrate_core(STATE_ROOT)
-    cloud_state.hydrate_named_files(STATE_ROOT, [
-        "management_allocations.json",
-        "delivery/delivery_master.json",
-        "delivery/delivery_allocations.json",
-        "delivery/delivery_schedule.json",
-    ])
+    # Legacy/static Blob credentials are available at module import time and can
+    # hydrate immediately. Modern Vercel OIDC is delivered on each Request, so
+    # OIDC-only deployments hydrate lazily in @app.before_request below.
+    if cloud_state.enabled:
+        cloud_state.hydrate_core(STATE_ROOT)
+        cloud_state.hydrate_named_files(STATE_ROOT, [
+            "management_allocations.json",
+            "delivery/delivery_master.json",
+            "delivery/delivery_allocations.json",
+            "delivery/delivery_schedule.json",
+        ])
+        CLOUD_BOOT_HYDRATED = True
 except Exception as exc:
     CLOUD_BOOT_ERROR = str(exc)
 
@@ -197,6 +205,9 @@ _presentation_input_cache = {}
 _management_lock = threading.RLock()
 _cache_lock = threading.RLock()
 _import_lock = threading.Lock()
+_cloud_runtime_lock = threading.RLock()
+_cloud_runtime_hydrated = CLOUD_BOOT_HYDRATED
+_cloud_runtime_error = CLOUD_BOOT_ERROR
 
 _MANAGEMENT_NUMERIC_FIELDS = frozenset({"quantity", "unit_cost", "inventory", "po_balance"})
 _MANAGEMENT_TEXT_FIELDS = frozenset({"remarks"})
@@ -211,38 +222,53 @@ def _send_bytes(payload: bytes, filename: str, mimetype: str):
     return send_file(BytesIO(payload), mimetype=mimetype, as_attachment=True, download_name=filename)
 
 
-def _persistent_storage_error():
-    """Return a JSON error response when a Vercel mutation would be ephemeral."""
+def _persistent_storage_error(*, allow_recovery: bool = False):
+    """Return a precise error when a Vercel mutation would not be durable.
+
+    Unified Import may repair a stale/corrupt prior cloud revision, so it is
+    allowed past a hydration error when credentials are present. It immediately
+    performs a Blob write/read probe before touching active data.
+    """
     if not IS_VERCEL or cloud_state.allow_ephemeral:
         return None
-    if CLOUD_BOOT_ERROR:
+    if _cloud_runtime_error and not (allow_recovery and cloud_state.enabled):
         return jsonify({
-            "error": "Persistent Vercel storage could not be loaded. The dashboard is in read-only protection mode.",
-            "detail": CLOUD_BOOT_ERROR,
+            "error": "Persistent Vercel Blob could not be initialized for this request.",
+            "detail": _cloud_runtime_error,
             "storage_required": True,
+            "storage": cloud_state.status().provider,
+            "auth_mode": cloud_state.auth_mode,
         }), 503
     if not cloud_state.enabled:
+        status = cloud_state.status()
         return jsonify({
-            "error": (
-                "This Vercel deployment needs a connected Private Vercel Blob store before saved data can be changed. "
-                "Open the Vercel project → Storage → Create Database → Blob → Private, connect it to this project, "
-                "then redeploy so BLOB_READ_WRITE_TOKEN is available."
-            ),
+            "error": status.detail,
             "storage_required": True,
+            "storage": status.provider,
+            "auth_mode": status.auth_mode,
+            "blob_store_id_present": bool(cloud_state.store_id),
+            "oidc_request_token_present": cloud_state.request_oidc_present,
+            "legacy_blob_token_present": bool(cloud_state.read_write_token),
         }), 503
     return None
 
 
 def _save_temp_upload(file_storage, *, prefix: str, allowed_extensions: set[str]) -> Path:
+    """Save an upload only to the OS temp area, never the deployed project tree."""
     ext = Path(file_storage.filename or "").suffix.lower()
     if ext not in allowed_extensions:
         allowed = ", ".join(sorted(allowed_extensions))
         raise ValueError(f"Unsupported file type. Allowed: {allowed}.")
-    fd, raw_path = tempfile.mkstemp(prefix=prefix, suffix=ext, dir=UPLOAD_DIR)
+    fd, raw_path = tempfile.mkstemp(prefix=prefix, suffix=ext, dir=IMPORT_TMP_DIR)
     os.close(fd)
     path = Path(raw_path)
     try:
-        file_storage.save(path)
+        # Workbooks are capped by MAX_CONTENT_LENGTH, so buffering the upload here
+        # is safe and avoids FileStorage.save() differences across serverless hosts.
+        payload = file_storage.stream.read()
+        if not payload:
+            raise ValueError("The selected upload is empty.")
+        path.write_bytes(payload)
     except Exception:
         path.unlink(missing_ok=True)
         raise
@@ -279,6 +305,62 @@ def _invalidate_bootstrap_cache():
     with _cache_lock:
         _bootstrap_cache.clear()
         _presentation_input_cache.clear()
+
+
+@app.before_request
+def _bind_vercel_oidc_and_hydrate_runtime():
+    """Bind per-request Vercel OIDC and lazily hydrate durable state.
+
+    Vercel exposes the runtime OIDC token in the x-vercel-oidc-token request
+    header, so an OIDC-only Blob store cannot be hydrated safely at module import
+    time. The first request performs hydration once per warm Python process.
+    """
+    global _cloud_runtime_hydrated, _cloud_runtime_error, _management_allocations_cache
+    if not IS_VERCEL:
+        return None
+
+    cloud_state.bind_request_oidc(request.headers.get("x-vercel-oidc-token", ""))
+    if cloud_state.allow_ephemeral or not cloud_state.enabled:
+        return None
+
+    # Ensure writes performed by DeliveryStore during this request are durable,
+    # including OIDC-only deployments where persistence was unavailable at import.
+    delivery_store.set_persist_callback(_persist_small_state)
+
+    if _cloud_runtime_hydrated:
+        return None
+
+    with _cloud_runtime_lock:
+        if _cloud_runtime_hydrated:
+            return None
+        try:
+            manifest = cloud_state.hydrate_core(STATE_ROOT)
+            cloud_state.hydrate_named_files(STATE_ROOT, [
+                "management_allocations.json",
+                "delivery/delivery_master.json",
+                "delivery/delivery_allocations.json",
+                "delivery/delivery_schedule.json",
+            ])
+
+            if manifest:
+                if EMPTY_STATE_MARKER.exists():
+                    store.clear()
+                elif ACTIVE_IMPORT.exists():
+                    store.load(ACTIVE_IMPORT, prevalidated=True)
+
+            # Named Delivery files may have just been restored from Blob. Reload
+            # them before serving the request so the UI sees durable state.
+            delivery_store.load()
+            delivery_store.sync_dashboard_branches(store.raw_records)
+            with _management_lock:
+                _management_allocations_cache = None
+            _invalidate_bootstrap_cache()
+            _cloud_runtime_error = ""
+            _cloud_runtime_hydrated = True
+        except Exception as exc:
+            _cloud_runtime_error = str(exc)
+            app.logger.exception("Vercel Blob lazy hydration failed")
+    return None
 
 
 def _presentation_inputs():
@@ -601,11 +683,11 @@ def api_model():
 def admin_import():
     """Transactionally refresh SCM, Management and Aging from one workbook.
 
-    v2.46.5 keeps the v2.46.3 staged parse and adds durable Vercel state publication.
-    It keeps JSON diagnostics for every handled failure, so the browser never has to report a
-    vague "Import failed" message for a recoverable workbook/server error.
+    v2.46.6 keeps the staged transaction while fixing Vercel OIDC, cold-start
+    hydration, and serverless temp-file handling. It verifies Blob read/write
+    access before parsing the workbook so configuration failures are explicit.
     """
-    global _management_allocations_cache
+    global _management_allocations_cache, _cloud_runtime_error, _cloud_runtime_hydrated
 
     reference = f"IMP-{_now_local().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(2).upper()}"
     stage = "receiving upload"
@@ -623,12 +705,28 @@ def admin_import():
         }), status
 
     try:
-        storage_error = _persistent_storage_error()
+        storage_error = _persistent_storage_error(allow_recovery=True)
         if storage_error:
             response, status = storage_error
             payload = response.get_json(silent=True) or {}
-            return fail(str(payload.get("error") or "Persistent storage is unavailable."), status, error_stage="checking Vercel storage")
+            detail = str(payload.get("detail") or "").strip()
+            message = str(payload.get("error") or "Persistent storage is unavailable.")
+            if detail and detail not in message:
+                message = f"{message} {detail}"
+            return fail(message, status, error_stage="checking Vercel storage")
 
+        if IS_VERCEL and cloud_state.enabled:
+            stage = "verifying Vercel Blob persistence"
+            try:
+                cloud_state.probe()
+            except Exception as exc:
+                _write_import_error_log(reference, stage, exc)
+                return fail(
+                    f"Vercel Blob is connected but the dashboard cannot write/read it: {exc}",
+                    503,
+                )
+
+        stage = "receiving upload"
         uploaded = request.files.get("file")
         if not uploaded:
             return fail("Please select the consolidated .xlsx import workbook.")
@@ -640,7 +738,10 @@ def admin_import():
             return fail(str(exc))
         except OSError as exc:
             _write_import_error_log(reference, stage, exc)
-            return fail("The workbook could not be saved to the dashboard data folder. Check folder permissions and free disk space.", 500)
+            return fail(
+                f"The workbook could not be staged in the Vercel temporary upload area: {exc}",
+                500,
+            )
 
         if not zipfile.is_zipfile(tmp):
             return fail("The selected file is not a valid .xlsx workbook. Re-save it as Excel Workbook (*.xlsx) and retry.")
@@ -652,7 +753,14 @@ def admin_import():
             active_backup = UPLOAD_DIR / f".active_import_backup_{token}.xlsx"
             aging_backup = AGING_DB_PATH.with_name(f".aging_backup_{token}.db")
             aging_cloud_snapshot = AGING_DB_PATH.with_name(f".aging_cloud_{token}.db")
-            previous_cloud_manifest = cloud_state.get_json(cloud_state.core_manifest_key) if cloud_state.enabled else None
+            previous_cloud_manifest = None
+            if cloud_state.enabled:
+                try:
+                    previous_cloud_manifest = cloud_state.get_json(cloud_state.core_manifest_key)
+                except Exception:
+                    # A damaged old manifest must not prevent a valid new Unified
+                    # Import from repairing the durable control-tower state.
+                    app.logger.warning("Previous cloud manifest could not be read during recovery import [%s]", reference, exc_info=True)
 
             stage = "validating SCM workbook"
             check = DashboardStore.validate(tmp)
@@ -714,6 +822,10 @@ def admin_import():
                 stage = "publishing dashboard state"
                 store.adopt_from(candidate_store, active)
                 _safe_unlink(EMPTY_STATE_MARKER)
+                # A successful new revision repairs any stale/corrupt prior cloud
+                # state that may have failed lazy hydration on this warm process.
+                _cloud_runtime_error = ""
+                _cloud_runtime_hydrated = True
 
             except Exception as exc:
                 app.logger.exception("Unified import failed at %s [%s]", stage, reference)
@@ -1134,7 +1246,7 @@ def admin_export_delivery():
 def health():
     storage_status = cloud_state.status()
     return {
-        "status": "degraded" if CLOUD_BOOT_ERROR else "ok",
+        "status": "degraded" if _cloud_runtime_error else "ok",
         "version": APP_VERSION,
         "role": role(),
         "records": len(store.raw_records),
@@ -1145,8 +1257,14 @@ def health():
         "storage": storage_status.provider,
         "persistent_storage": storage_status.enabled,
         "storage_detail": storage_status.detail,
-        "storage_boot_error": CLOUD_BOOT_ERROR or None,
+        "storage_auth_mode": storage_status.auth_mode,
+        "storage_runtime_error": _cloud_runtime_error or None,
+        "cloud_runtime_hydrated": _cloud_runtime_hydrated,
+        "blob_store_id_present": bool(cloud_state.store_id),
+        "oidc_request_token_present": cloud_state.request_oidc_present,
+        "legacy_blob_token_present": bool(cloud_state.read_write_token),
         "state_root": str(STATE_ROOT),
+        "import_temp_root": str(IMPORT_TMP_DIR),
         "saved_import": ACTIVE_IMPORT.exists(),
         "data_source": "no-data" if EMPTY_STATE_MARKER.exists() else ("saved-import" if ACTIVE_IMPORT.exists() else "bundled-baseline"),
         "export_storage": "in-memory-download-only",

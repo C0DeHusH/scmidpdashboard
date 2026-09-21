@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 import zipfile
+import json
+import urllib.parse
+from unittest.mock import patch
 from io import BytesIO
 from pathlib import Path
 
@@ -175,23 +179,26 @@ class DashboardCoreSmokeTests(unittest.TestCase):
             self.assertIn(b"TEST MODEL", captured[-1][1])
 
     def test_cloud_core_revision_manifest_is_last_write(self):
-        class Result:
-            def __init__(self, payload):
-                self.status_code = 200
-                self.stream = [payload]
-
-        class FakeBlob:
+        class MemoryBlobState(VercelBlobState):
             def __init__(self):
+                super().__init__()
                 self.objects = {}
                 self.put_order = []
-            def put(self, key, payload, **_kwargs):
-                self.objects[key] = bytes(payload)
-                self.put_order.append(key)
-            def get(self, key, **_kwargs):
-                payload = self.objects.get(key)
-                return None if payload is None else Result(payload)
-            def delete(self, key, **_kwargs):
-                self.objects.pop(key, None)
+
+            @property
+            def enabled(self):
+                return True
+
+            def _put_bytes(self, key, payload, *, content_type=None):
+                full = self._key(key)
+                self.objects[full] = bytes(payload)
+                self.put_order.append(full)
+
+            def get_bytes(self, key):
+                return self.objects.get(self._key(key))
+
+            def delete(self, key):
+                self.objects.pop(self._key(key), None)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -200,12 +207,10 @@ class DashboardCoreSmokeTests(unittest.TestCase):
             workbook.write_bytes(b"xlsx-state")
             aging.write_bytes(b"sqlite-state")
 
-            cloud = VercelBlobState()
-            cloud.token = "test-token"
-            cloud._client = FakeBlob()
+            cloud = MemoryBlobState()
             manifest = cloud.publish_core(workbook, aging, "IMP-TEST-001")
 
-            self.assertEqual(cloud._client.put_order[-1], cloud._key(cloud.core_manifest_key))
+            self.assertEqual(cloud.put_order[-1], cloud._key(cloud.core_manifest_key))
             self.assertEqual(manifest["revision"], "IMP-TEST-001")
 
             runtime = root / "runtime"
@@ -214,19 +219,105 @@ class DashboardCoreSmokeTests(unittest.TestCase):
             self.assertEqual((runtime / "active_import.xlsx").read_bytes(), b"xlsx-state")
             self.assertEqual((runtime / "aging" / "aging.db").read_bytes(), b"sqlite-state")
 
+    def test_vercel_oidc_request_auth_is_supported_without_static_token(self):
+        env = {
+            "VERCEL": "1",
+            "BLOB_STORE_ID": "store_abc123",
+            "BLOB_READ_WRITE_TOKEN": "",
+            "VERCEL_OIDC_TOKEN": "",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            cloud = VercelBlobState()
+            self.assertFalse(cloud.enabled)
+            cloud.bind_request_oidc("oidc-runtime-token")
+            self.assertTrue(cloud.enabled)
+            self.assertEqual(cloud.auth_mode, "oidc-request")
+            headers = cloud._api_headers(content_type="application/json")
+            self.assertEqual(headers["Authorization"], "Bearer oidc-runtime-token")
+            self.assertEqual(headers["x-vercel-blob-store-id"], "abc123")
+            self.assertEqual(headers["x-api-version"], "12")
+
+
+    def test_vercel_blob_http_probe_contract(self):
+        objects = {}
+        seen = []
+
+        class Response:
+            def __init__(self, payload=b"{}"):
+                self.payload = payload
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def read(self):
+                return self.payload
+
+        def fake_urlopen(req, timeout=45):
+            seen.append(req)
+            method = req.get_method()
+            parsed = urllib.parse.urlparse(req.full_url)
+            if method == "PUT":
+                pathname = urllib.parse.parse_qs(parsed.query)["pathname"][0]
+                objects[pathname] = bytes(req.data or b"")
+                return Response(b'{"ok":true}')
+            if method == "GET":
+                pathname = urllib.parse.unquote(parsed.path.lstrip("/"))
+                return Response(objects[pathname])
+            if method == "POST" and parsed.path.endswith("/delete"):
+                payload = json.loads(bytes(req.data or b"{}").decode("utf-8"))
+                for pathname in payload.get("urls", []):
+                    objects.pop(pathname, None)
+                return Response(b"{}")
+            raise AssertionError(f"Unexpected request: {method} {req.full_url}")
+
+        env = {
+            "VERCEL": "1",
+            "BLOB_STORE_ID": "store_abc123",
+            "BLOB_READ_WRITE_TOKEN": "",
+            "VERCEL_OIDC_TOKEN": "",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            cloud = VercelBlobState()
+            cloud.bind_request_oidc("oidc-runtime-token")
+            with patch("dashboard.cloud_state.urllib.request.urlopen", side_effect=fake_urlopen):
+                result = cloud.probe()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(objects, {})
+        self.assertEqual([req.get_method() for req in seen], ["PUT", "GET", "POST"])
+        put_headers = {k.lower(): v for k, v in seen[0].header_items()}
+        self.assertEqual(put_headers["authorization"], "Bearer oidc-runtime-token")
+        self.assertEqual(put_headers["x-vercel-blob-store-id"], "abc123")
+        self.assertEqual(put_headers["x-vercel-blob-access"], "private")
+        self.assertEqual(put_headers["x-allow-overwrite"], "1")
+
     def test_vercel_persistent_storage_contract(self):
         app_source = (ROOT / "app.py").read_text(encoding="utf-8")
         cloud_source = (ROOT / "dashboard" / "cloud_state.py").read_text(encoding="utf-8")
         requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
 
-        self.assertIn('Path(tempfile.gettempdir()) / "scm-idp-dashboard"', app_source)
+        # Vercel must always use the writable system temp area, even when an old
+        # SCM_DATA_DIR environment variable survives from a previous deployment.
+        self.assertIn('if IS_VERCEL:\n    os.environ["SCM_DATA_DIR"] = str(Path(tempfile.gettempdir()) / "scm-idp-dashboard")', app_source)
+        self.assertIn('IMPORT_TMP_DIR = Path(tempfile.gettempdir()) / "scm-idp-dashboard-imports"', app_source)
+        self.assertIn('dir=IMPORT_TMP_DIR', app_source)
+        self.assertNotIn('dir=UPLOAD_DIR)\n    os.close(fd)\n    path = Path(raw_path)\n    try:\n        file_storage.save(path)', app_source)
+
+        self.assertIn('request.headers.get("x-vercel-oidc-token", "")', app_source)
+        self.assertIn('cloud_state.probe()', app_source)
         self.assertIn('cloud_state.publish_core(active, aging_cloud_snapshot, reference)', app_source)
         self.assertIn('error_stage="checking Vercel storage"', app_source)
         self.assertIn('cloud_state.publish_empty_core(reset_reference)', app_source)
         self.assertIn('persist_callback=_persist_small_state if cloud_state.enabled else None', app_source)
+        self.assertIn('delivery_store.set_persist_callback(_persist_small_state)', app_source)
+
+        self.assertIn('x-vercel-oidc-token', cloud_source)
+        self.assertIn('BLOB_STORE_ID', cloud_source)
+        self.assertIn('x-vercel-blob-store-id', cloud_source)
+        self.assertIn('x-vercel-blob-access', cloud_source)
         self.assertIn('core/current.json', cloud_source)
-        self.assertIn('Private Vercel Blob', cloud_source)
-        self.assertIn('vercel>=0.5.0', requirements)
+        # v2.46.6 uses the Blob HTTP API directly, removing SDK-version coupling.
+        self.assertNotIn('vercel>=', requirements.lower())
 
 
 if __name__ == "__main__":

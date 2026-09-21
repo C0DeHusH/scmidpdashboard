@@ -106,6 +106,11 @@ class DeliveryStore:
         self.schedule: List[Dict[str, str]] = []
         self.load()
 
+    def set_persist_callback(self, callback) -> None:
+        """Update the durable persistence callback after serverless auth is bound."""
+        with self._lock:
+            self._persist_callback = callback
+
     def load(self) -> None:
         with self._lock:
             local_master = json.loads(self.master_path.read_text(encoding="utf-8"))
