@@ -46,6 +46,10 @@
     try {
       const response = await nativeFetch('/api/session', { credentials: 'same-origin', cache: 'no-store' });
       const data = await response.json();
+      if (data.configuration_required) {
+        toast('Vercel Admin session setup is incomplete. Configure SCM_SECRET_KEY and redeploy.', false);
+        return;
+      }
       if (!response.ok || !data.is_admin) scheduleAdminRelogin('Admin access needs to be refreshed. Please sign in again.');
     } catch (_) {}
   }

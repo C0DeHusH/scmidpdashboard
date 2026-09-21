@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Durable Vercel Blob state for the SCM dashboard.
 
-v2.46.6 deliberately does not depend on a particular Vercel Python SDK release.
+v2.46.7 deliberately does not depend on a particular Vercel Python SDK release.
 It speaks to the documented Blob HTTP API directly so both authentication models
 work reliably:
 
@@ -137,7 +137,7 @@ class VercelBlobState:
                 "vercel",
                 False,
                 "vercel-blob-missing-store-id",
-                "Vercel OIDC is available but BLOB_STORE_ID is missing. Reconnect the Blob store to this project and redeploy.",
+                "Vercel OIDC is active, but no Blob store is connected to this deployment (BLOB_STORE_ID is missing). In Vercel open this project > Storage, create or connect a Blob store for the current environment, then redeploy.",
                 "oidc-missing-store-id",
             )
         return CloudStatus(

@@ -238,6 +238,18 @@ class DashboardCoreSmokeTests(unittest.TestCase):
             self.assertEqual(headers["x-api-version"], "12")
 
 
+
+    def test_vercel_session_readiness_contract(self):
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        login = (ROOT / "templates" / "login.html").read_text(encoding="utf-8")
+        dashboard_js = (ROOT / "static" / "js" / "dashboard-app.js").read_text(encoding="utf-8")
+        self.assertIn('SESSION_KEY_SOURCE = "unknown"', app_source)
+        self.assertIn('SERVERLESS_SESSION_READY', app_source)
+        self.assertIn('"configuration_required": True', app_source)
+        self.assertIn('"session_key_source": SESSION_KEY_SOURCE', app_source)
+        self.assertIn('Deployment setup required.', login)
+        self.assertIn('d.configuration_required', dashboard_js)
+
     def test_vercel_blob_http_probe_contract(self):
         objects = {}
         seen = []
@@ -316,7 +328,7 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn('x-vercel-blob-store-id', cloud_source)
         self.assertIn('x-vercel-blob-access', cloud_source)
         self.assertIn('core/current.json', cloud_source)
-        # v2.46.6 uses the Blob HTTP API directly, removing SDK-version coupling.
+        # v2.46.7 keeps the Blob HTTP API directly, removing SDK-version coupling.
         self.assertNotIn('vercel>=', requirements.lower())
 
 

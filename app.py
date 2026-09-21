@@ -30,7 +30,7 @@ from dashboard.cloud_state import VercelBlobState
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env")
 DATA_FILE = BASE / "data" / "MC_Dashboard_IMPORT.xlsx"
-APP_VERSION = "2.46.6"
+APP_VERSION = "2.46.7"
 IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
 
 # Vercel's deployed project filesystem is read-only except for the function's
@@ -124,39 +124,57 @@ def _write_secret(path: Path, value: str) -> None:
         pass
 
 
+SESSION_KEY_SOURCE = "unknown"
+
+
 def _load_or_create_secret_key() -> str:
-    """Use a stable environment-derived secret on Vercel and durable local secret elsewhere."""
+    """Return a stable Flask signing key and record where it came from.
+
+    A Vercel Function can be served by different isolated instances. A key generated
+    on the local filesystem therefore cannot be trusted for Admin sessions online.
+    v2.46.7 treats that situation as an explicit deployment configuration error
+    instead of allowing a login that later appears to "randomly" log out.
+    """
+    global SESSION_KEY_SOURCE
     configured = str(os.environ.get("SCM_SECRET_KEY") or "").strip()
     if configured:
+        SESSION_KEY_SOURCE = "SCM_SECRET_KEY"
         return configured
 
     if IS_VERCEL:
-        # A random file-based key under /tmp would change after a cold start and
-        # invalidate every Admin session. Prefer the connected private Blob token;
-        # fall back to the configured Admin password + Vercel project id so the
-        # cookie signature remains stable across function instances.
+        # Legacy Blob credentials are stable across instances. A configured Admin
+        # password is also acceptable as key material when combined with the stable
+        # Vercel project id. SCM_SECRET_KEY remains the preferred production option.
         blob_secret = str(os.environ.get("BLOB_READ_WRITE_TOKEN") or "").strip()
         admin_secret = str(os.environ.get("SCM_ADMIN_PASSWORD") or "").strip()
         project_id = str(os.environ.get("VERCEL_PROJECT_ID") or "scm-idp-dashboard").strip()
-        material = blob_secret or (f"{admin_secret}|{project_id}" if admin_secret else "")
-        if material:
-            return hashlib.sha256(f"scm-idp-session|{material}".encode("utf-8")).hexdigest()
+        if blob_secret:
+            SESSION_KEY_SOURCE = "BLOB_READ_WRITE_TOKEN-derived"
+            return hashlib.sha256(f"scm-idp-session|{blob_secret}|{project_id}".encode("utf-8")).hexdigest()
+        if admin_secret:
+            SESSION_KEY_SOURCE = "SCM_ADMIN_PASSWORD-derived"
+            return hashlib.sha256(f"scm-idp-session|{admin_secret}|{project_id}".encode("utf-8")).hexdigest()
+
+        # Keep Flask able to render public/diagnostic pages, but Admin endpoints are
+        # blocked below until a stable deployment secret is configured. Never claim
+        # this ephemeral key is safe for cross-instance authentication.
+        SESSION_KEY_SOURCE = "ephemeral-unconfigured"
+        return secrets.token_urlsafe(48)
 
     shared_path = _shared_session_secret_path()
     local_path = STATE_ROOT / ".session_secret"
-
-    # Prefer the per-user key so successive extracted versions authenticate the same
-    # browser session. The package-local copy is retained as a compatibility mirror.
     existing = _read_secret(shared_path) or _read_secret(local_path)
     if not existing:
         existing = secrets.token_urlsafe(48)
     _write_secret(shared_path, existing)
     _write_secret(local_path, existing)
+    SESSION_KEY_SOURCE = "local-session-file"
     return existing
 
 
 app = Flask(__name__)
 app.secret_key = _load_or_create_secret_key()
+SERVERLESS_SESSION_READY = (not IS_VERCEL) or SESSION_KEY_SOURCE != "ephemeral-unconfigured"
 app.config["MAX_CONTENT_LENGTH"] = (4 * 1024 * 1024) if IS_VERCEL else (25 * 1024 * 1024)
 # IMPORTANT: use an application-specific cookie name. Browser cookies are scoped
 # by host/path, not by port, so Flask's default `session` cookie can be overwritten
@@ -469,6 +487,12 @@ def _merge_management_edits(base: dict, incoming: dict, valid_keys: set[str]) ->
 def admin_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
+        if IS_VERCEL and not SERVERLESS_SESSION_READY:
+            return jsonify({
+                "error": "Vercel Admin sessions are not configured for multi-instance use.",
+                "detail": "Set SCM_SECRET_KEY (preferred) or SCM_ADMIN_PASSWORD in Vercel Project Settings > Environment Variables, then redeploy.",
+                "configuration_required": True,
+            }), 503
         if role() != "admin":
             return jsonify({
                 "error": "Your Admin session is not active. Please sign in again.",
@@ -487,6 +511,9 @@ def index():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
+        if IS_VERCEL and not SERVERLESS_SESSION_READY:
+            flash("Vercel deployment setup is incomplete. Add SCM_SECRET_KEY (preferred) or SCM_ADMIN_PASSWORD in Project Settings > Environment Variables, then redeploy.", "error")
+            return render_template("login.html", deployment_ready=False), 503
         password = request.form.get("password", "")
         if hmac.compare_digest(password, ADMIN_PASSWORD):
             # Start a fresh authenticated session and keep it alive through the
@@ -501,7 +528,7 @@ def login():
                 next_url = url_for("index")
             return redirect(next_url)
         flash("Invalid admin password.", "error")
-    return render_template("login.html")
+    return render_template("login.html", deployment_ready=SERVERLESS_SESSION_READY)
 
 
 @app.post("/logout")
@@ -518,6 +545,9 @@ def api_session():
         "role": "admin" if is_admin else "guest",
         "is_admin": is_admin,
         "authenticated_at": session.get("authenticated_at") if is_admin else None,
+        "deployment_ready": SERVERLESS_SESSION_READY,
+        "configuration_required": bool(IS_VERCEL and not SERVERLESS_SESSION_READY),
+        "session_key_source": SESSION_KEY_SOURCE,
     })
 
 
@@ -1245,10 +1275,24 @@ def admin_export_delivery():
 @app.get("/health")
 def health():
     storage_status = cloud_state.status()
+    blocking_issues = []
+    if IS_VERCEL and not SERVERLESS_SESSION_READY:
+        blocking_issues.append("stable-admin-session-secret-missing")
+    if IS_VERCEL and not storage_status.enabled:
+        blocking_issues.append("persistent-blob-storage-not-connected")
+    if _cloud_runtime_error:
+        blocking_issues.append("cloud-runtime-hydration-error")
+    deployment_ready = (not IS_VERCEL) or not blocking_issues
     return {
-        "status": "degraded" if _cloud_runtime_error else "ok",
+        "status": "ok" if deployment_ready else "degraded",
+        "deployment_ready": deployment_ready,
+        "blocking_issues": blocking_issues,
         "version": APP_VERSION,
         "role": role(),
+        "serverless_session_ready": SERVERLESS_SESSION_READY,
+        "session_key_source": SESSION_KEY_SOURCE,
+        "scm_secret_key_configured": bool(str(os.environ.get("SCM_SECRET_KEY") or "").strip()),
+        "admin_password_configured": bool(str(os.environ.get("SCM_ADMIN_PASSWORD") or "").strip()),
         "records": len(store.raw_records),
         "management_models": len(store.management_records),
         "aging_records": aging_record_count(),

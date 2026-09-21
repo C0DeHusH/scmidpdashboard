@@ -30,6 +30,7 @@ async function verifyAdminSession(){
   try{
     const r=await nativeFetch('/api/session',{credentials:'same-origin',cache:'no-store'});
     const d=await r.json();
+    if(d.configuration_required){toast('Vercel Admin session setup is incomplete. Configure SCM_SECRET_KEY and redeploy.',false);return false}
     if(!r.ok||!d.is_admin){scheduleAdminRelogin('Admin access needs to be refreshed. Please sign in again.');return false}
     return true;
   }catch(_){return true}
