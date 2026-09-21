@@ -6,6 +6,8 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 
+from openpyxl import load_workbook
+
 from dashboard.delivery import DeliveryStore
 from dashboard.metrics import DashboardStore, TARGET_KPIS
 from dashboard.xlsx_reader import XlsxReader
@@ -124,6 +126,37 @@ class DashboardCoreSmokeTests(unittest.TestCase):
                 self.assertIn(f'name="{day}"', workbook_xml)
             self.assertIn('name="Weekly Schedule"', workbook_xml)
             self.assertNotIn("<pane", archive.read("xl/worksheets/sheet1.xml").decode("utf-8"))
+
+    def test_unified_import_tolerates_sheet_name_and_header_spacing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            candidate = Path(temp_dir) / "renamed.xlsx"
+            wb = load_workbook(WORKBOOK)
+            wb["KPI_YTD_Input"].title = "KPI YTD Input"
+            wb["KPI_WEEKLY_Input"].title = "KPI-WEEKLY-Input"
+            wb["Raw"].insert_rows(1)
+            wb["Raw"]["A1"] = "SCM CONTROL TOWER"
+            wb["Aging"].insert_rows(1)
+            wb["Aging"]["A1"] = "MOTORCYCLE AGING"
+            wb.save(candidate)
+            wb.close()
+
+            result = DashboardStore.validate(candidate)
+            self.assertTrue(result.ok, result.message)
+            store = DashboardStore(candidate)
+            self.assertGreater(len(store.raw_records), 0)
+            self.assertGreater(len(store.management_records), 0)
+
+    def test_unified_import_recovery_contract(self):
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        import_js = (ROOT / "static" / "js" / "unified-import.js").read_text(encoding="utf-8")
+        self.assertIn("candidate_store = DashboardStore(None)", app_source)
+        self.assertIn("store.adopt_from(candidate_store, active)", app_source)
+        self.assertIn("unified_import_errors.log", app_source)
+        self.assertIn('"reference": reference', app_source)
+        self.assertIn("parseXhrResponse", import_js)
+        self.assertIn("Reference:", import_js)
+        self.assertNotIn("xhr.responseType='json'", import_js)
+
 
 
 if __name__ == "__main__":

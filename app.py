@@ -17,6 +17,8 @@ import tempfile
 import threading
 import time
 import webbrowser
+import zipfile
+import traceback
 
 from dashboard.metrics import DashboardStore
 from dashboard.xlsx_export import build_branch_request_xlsx, build_delivery_plan_xlsx, build_management_order_xlsx
@@ -176,6 +178,32 @@ def _save_temp_upload(file_storage, *, prefix: str, allowed_extensions: set[str]
         path.unlink(missing_ok=True)
         raise
     return path
+
+
+def _safe_unlink(path: Path | None) -> None:
+    """Best-effort cleanup that must never turn a handled import error into HTTP 500."""
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        app.logger.warning("Could not remove temporary import artifact: %s", path, exc_info=True)
+
+
+def _write_import_error_log(reference: str, stage: str, exc: BaseException) -> None:
+    """Persist technical diagnostics locally without exposing workbook contents in the UI."""
+    try:
+        log_dir = STATE_ROOT / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "unified_import_errors.log"
+        stamp = _now_local().isoformat(timespec="seconds")
+        detail = traceback.format_exc()
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"\n[{stamp}] reference={reference} stage={stage}\n")
+            handle.write(f"{type(exc).__name__}: {exc}\n")
+            handle.write(detail.rstrip() + "\n")
+    except OSError:
+        app.logger.warning("Could not write unified import diagnostics", exc_info=True)
 
 
 def _invalidate_bootstrap_cache():
@@ -490,94 +518,177 @@ def api_model():
 @app.post("/admin/import")
 @admin_required
 def admin_import():
-    """Atomically refresh SCM, Management and Aging from one consolidated workbook."""
-    global _management_allocations_cache
-    uploaded = request.files.get("file")
-    if not uploaded:
-        return jsonify({"error": "Please select the consolidated .xlsx import workbook."}), 400
-    original_name = uploaded.filename or "SCM_Import.xlsx"
-    try:
-        tmp = _save_temp_upload(uploaded, prefix="unified_import_", allowed_extensions={".xlsx"})
-    except ValueError:
-        return jsonify({"error": "Please select the consolidated .xlsx import workbook."}), 400
+    """Transactionally refresh SCM, Management and Aging from one workbook.
 
-    with _import_lock:
-        active = ACTIVE_IMPORT
-        active_backup = UPLOAD_DIR / ".active_import_before_unified_refresh.xlsx"
-        aging_backup = AGING_DB_PATH.with_name(".aging_before_unified_refresh.db")
-        active_backup.unlink(missing_ok=True)
-        aging_backup.unlink(missing_ok=True)
+    v2.46.3 stages the full dashboard parse before mutating live state and guarantees
+    JSON diagnostics for every handled failure, so the browser never has to report a
+    vague "Import failed" message for a recoverable workbook/server error.
+    """
+    global _management_allocations_cache
+
+    reference = f"IMP-{_now_local().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(2).upper()}"
+    stage = "receiving upload"
+    tmp: Path | None = None
+    active_backup: Path | None = None
+    aging_backup: Path | None = None
+
+    def fail(message: str, status: int = 400, *, error_stage: str | None = None):
+        return jsonify({
+            "error": message,
+            "stage": error_stage or stage,
+            "reference": reference,
+            "previous_data_active": True,
+        }), status
+
+    try:
+        uploaded = request.files.get("file")
+        if not uploaded:
+            return fail("Please select the consolidated .xlsx import workbook.")
+        original_name = uploaded.filename or "SCM_Import.xlsx"
 
         try:
+            tmp = _save_temp_upload(uploaded, prefix="unified_import_", allowed_extensions={".xlsx"})
+        except ValueError as exc:
+            return fail(str(exc))
+        except OSError as exc:
+            _write_import_error_log(reference, stage, exc)
+            return fail("The workbook could not be saved to the dashboard data folder. Check folder permissions and free disk space.", 500)
+
+        if not zipfile.is_zipfile(tmp):
+            return fail("The selected file is not a valid .xlsx workbook. Re-save it as Excel Workbook (*.xlsx) and retry.")
+
+        with _import_lock:
+            # Unique backup names eliminate collisions with stale files from a previous
+            # interrupted Windows session and make cleanup independent per request.
+            token = reference.replace(":", "-")
+            active_backup = UPLOAD_DIR / f".active_import_backup_{token}.xlsx"
+            aging_backup = AGING_DB_PATH.with_name(f".aging_backup_{token}.db")
+
+            stage = "validating SCM workbook"
             check = DashboardStore.validate(tmp)
             if not check.ok:
-                return jsonify({"error": check.message}), 400
-            try:
-                validate_unified_aging(tmp, "Aging")
-            except Exception as exc:
-                return jsonify({"error": f"Aging validation failed: {exc}"}), 400
+                return fail(check.message)
 
+            stage = "validating Motorcycle Aging"
+            try:
+                aging_preflight = validate_unified_aging(tmp, "Aging")
+            except Exception as exc:
+                return fail(f"Aging validation failed: {exc}")
+
+            # Parse every SCM/KPI/Management dataset in memory before touching the live
+            # workbook or Aging database. This catches formula/header/data-shape issues
+            # while the previous state is still completely untouched.
+            stage = "staging SCM, KPI and Management data"
+            candidate_store = DashboardStore(None)
+            try:
+                candidate_store.load(tmp, prevalidated=True)
+            except Exception as exc:
+                return fail(f"SCM/KPI staging failed: {exc}")
+
+            active = ACTIVE_IMPORT
             had_active = active.exists()
             had_aging_db = AGING_DB_PATH.exists()
+            workbook_committed = False
+            aging_committed = False
+
             try:
+                stage = "creating rollback snapshot"
                 if had_active:
                     shutil.copy2(active, active_backup)
                 if had_aging_db:
                     backup_aging_database(aging_backup)
 
-                aging_result = import_aging_excel(tmp, original_name, mode="replace", sheet_name="Aging")
-                os.replace(tmp, active)
-                store.load(active, prevalidated=True)
-                EMPTY_STATE_MARKER.unlink(missing_ok=True)
+                stage = "refreshing Motorcycle Aging"
+                aging_result = import_aging_excel(tmp, original_name, mode="replace", sheet_name=aging_preflight.get("sheet") or "Aging")
+                aging_committed = True
 
-                MANAGEMENT_ALLOCATIONS.unlink(missing_ok=True)
+                stage = "committing unified workbook"
+                os.replace(tmp, active)
+                tmp = None
+                workbook_committed = True
+
+                # Publishing the already-staged candidate is an in-memory operation and
+                # avoids a second full workbook re-read after the commit.
+                stage = "publishing dashboard state"
+                store.adopt_from(candidate_store, active)
+                _safe_unlink(EMPTY_STATE_MARKER)
+
+            except Exception as exc:
+                app.logger.exception("Unified import failed at %s [%s]", stage, reference)
+                _write_import_error_log(reference, stage, exc)
+
+                # Restore only the state that was actually changed. The live in-memory
+                # DashboardStore is not adopted until the workbook commit succeeds.
+                try:
+                    if workbook_committed:
+                        if had_active and active_backup and active_backup.exists():
+                            shutil.copy2(active_backup, active)
+                        else:
+                            _safe_unlink(active)
+                except Exception:
+                    app.logger.exception("SCM workbook rollback failed [%s]", reference)
+
+                try:
+                    if aging_committed:
+                        if had_aging_db and aging_backup and aging_backup.exists():
+                            restore_aging_database(aging_backup)
+                        else:
+                            clear_aging_data()
+                except Exception:
+                    app.logger.exception("Aging database rollback failed [%s]", reference)
+
+                _invalidate_bootstrap_cache()
+                return fail(f"Unified refresh stopped during {stage}: {exc}", 400)
+
+            # Non-core housekeeping is intentionally best-effort. A saved workbook and
+            # Aging database should never be rolled back because a cache or optional
+            # branch synchronization file could not be refreshed.
+            stage = "finalizing workspace"
+            try:
+                _safe_unlink(MANAGEMENT_ALLOCATIONS)
                 with _management_lock:
                     _management_allocations_cache = {}
+            except Exception:
+                app.logger.warning("Management planning reset warning [%s]", reference, exc_info=True)
+
+            try:
                 delivery_store.sync_dashboard_branches(store.raw_records)
-                _invalidate_bootstrap_cache()
+            except Exception:
+                app.logger.warning("Delivery branch synchronization warning [%s]", reference, exc_info=True)
 
-                message = (
-                    "Unified import complete — Executive/KPI, Reorder/Management and Motorcycle Aging refreshed from one workbook. "
-                    f"Aging: {aging_result['rows']:,} units · {aging_result['branches']} branches · "
-                    f"{aging_result['areas']} areas · as of {aging_result['as_of_date']}."
-                )
-                return jsonify({
-                    "ok": True,
-                    "message": message,
-                    "generated_at": store.generated_at.isoformat(),
-                    "modules": {
-                        "scm": {"status": "updated", "records": len(store.raw_records)},
-                        "management": {"status": "updated", "source": "Reorder / Management worksheet"},
-                        "aging": {"status": "updated", **aging_result},
-                    },
-                })
-            except Exception as exc:
-                try:
-                    if had_active and active_backup.exists():
-                        shutil.copy2(active_backup, active)
-                        store.load(active)
-                    else:
-                        active.unlink(missing_ok=True)
-                        if EMPTY_STATE_MARKER.exists():
-                            store.clear()
-                        elif DATA_FILE.exists():
-                            store.load(DATA_FILE)
-                except Exception:
-                    app.logger.exception("SCM workbook rollback failed")
+            _invalidate_bootstrap_cache()
 
-                try:
-                    if had_aging_db and aging_backup.exists():
-                        restore_aging_database(aging_backup)
-                    elif AGING_DB_PATH.exists():
-                        clear_aging_data()
-                except Exception:
-                    app.logger.exception("Aging database rollback failed")
-                _invalidate_bootstrap_cache()
-                return jsonify({"error": f"Unified import failed and the previous data was restored: {exc}"}), 400
-        finally:
-            tmp.unlink(missing_ok=True)
-            active_backup.unlink(missing_ok=True)
-            aging_backup.unlink(missing_ok=True)
+            message = (
+                "Unified import complete — Executive/KPI, Reorder/Management and Motorcycle Aging refreshed from one workbook. "
+                f"Aging: {aging_result['rows']:,} units · {aging_result['branches']} branches · "
+                f"{aging_result['areas']} areas · as of {aging_result['as_of_date']}."
+            )
+            return jsonify({
+                "ok": True,
+                "message": message,
+                "reference": reference,
+                "generated_at": store.generated_at.isoformat(),
+                "modules": {
+                    "scm": {"status": "updated", "records": len(store.raw_records)},
+                    "management": {"status": "updated", "source": store.management_sheet_name or "Not detected"},
+                    "aging": {"status": "updated", **aging_result},
+                },
+            })
+
+    except Exception as exc:
+        # Last-resort contract: even an unexpected server-side exception is returned
+        # as JSON with a local diagnostic reference rather than Flask's HTML 500 page.
+        app.logger.exception("Unexpected unified import error at %s [%s]", stage, reference)
+        _write_import_error_log(reference, stage, exc)
+        return fail(
+            "The unified refresh encountered an unexpected server error. "
+            "The previous data remains active; use the reference below for diagnostics.",
+            500,
+        )
+    finally:
+        _safe_unlink(tmp)
+        _safe_unlink(active_backup)
+        _safe_unlink(aging_backup)
 
 
 @app.get("/admin/export/pptx")

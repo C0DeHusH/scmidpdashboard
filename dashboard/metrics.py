@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from threading import RLock
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 import math
+import re
 
 from .xlsx_reader import XlsxReader, excel_serial_to_date
 
@@ -82,6 +84,21 @@ def _ceil_doi(value: Any) -> int:
     return int(math.ceil(max(0.0, _num(value))))
 
 
+def _sheet_key(value: Any) -> str:
+    """Normalize worksheet names so harmless spacing/underscore changes do not break imports."""
+    return re.sub(r"[^A-Z0-9]+", "", _clean(value).upper())
+
+
+def _find_header_index(rows: List[List[Any]], required: set[str], max_rows: int = 8) -> Optional[int]:
+    """Return the first row containing all required headers, ignoring leading title rows."""
+    required_clean = {_clean(x) for x in required}
+    for idx, row in enumerate(rows[:max_rows]):
+        headers = {_clean(x) for x in row if _clean(x)}
+        if required_clean.issubset(headers):
+            return idx
+    return None
+
+
 @dataclass
 class ImportValidation:
     ok: bool
@@ -135,6 +152,44 @@ class DashboardStore:
             self.generated_at = datetime.now(timezone(timedelta(hours=8)))
 
     @staticmethod
+    def _resolve_sheet(reader: XlsxReader, canonical: str) -> Optional[str]:
+        """Resolve core worksheet names while tolerating spaces, hyphens and underscores."""
+        if canonical in reader.sheet_names:
+            return canonical
+        wanted = _sheet_key(canonical)
+        for name in reader.sheet_names:
+            if _sheet_key(name) == wanted:
+                return name
+        return None
+
+    def adopt_from(self, other: "DashboardStore", workbook_path: str | Path) -> None:
+        """Atomically publish a fully parsed candidate store without re-reading the workbook."""
+        # Build the complete snapshot before taking the live-store lock so allocations
+        # or deepcopy failures cannot leave a partially published dashboard state.
+        with other._lock:
+            snapshot = {
+                "workbook_path": Path(workbook_path),
+                "raw_records": list(other.raw_records),
+                "management_records": list(other.management_records),
+                "management_sheet_name": other.management_sheet_name,
+                "management_title": other.management_title,
+                "kpis": deepcopy(other.kpis),
+                "areas": list(other.areas),
+                "branches": list(other.branches),
+                "generated_at": other.generated_at,
+            }
+        with self._lock:
+            self.workbook_path = snapshot["workbook_path"]
+            self.raw_records = snapshot["raw_records"]
+            self.management_records = snapshot["management_records"]
+            self.management_sheet_name = snapshot["management_sheet_name"]
+            self.management_title = snapshot["management_title"]
+            self.kpis = snapshot["kpis"]
+            self.areas = snapshot["areas"]
+            self.branches = snapshot["branches"]
+            self.generated_at = snapshot["generated_at"]
+
+    @staticmethod
     def _find_management_sheet(reader: XlsxReader) -> Tuple[Optional[str], Optional[int]]:
         """Find the Management/Re-order sheet by its headers, not its worksheet name.
 
@@ -163,33 +218,38 @@ class DashboardStore:
     def validate(path: str | Path) -> ImportValidation:
         try:
             r = XlsxReader(path)
-            # v2.44 uses one consolidated workbook for the full control tower.
-            # Aging is now part of the same import contract rather than a separate upload.
-            required = {"Raw", "KPI_YTD_Input", "KPI_WEEKLY_Input", "Aging"}
-            missing = required - set(r.sheet_names)
+            resolved = {
+                key: DashboardStore._resolve_sheet(r, key)
+                for key in ("Raw", "KPI_YTD_Input", "KPI_WEEKLY_Input", "Aging")
+            }
+            missing = [key for key, actual in resolved.items() if not actual]
             if missing:
-                return ImportValidation(False, "Unified import is missing worksheet(s): " + ", ".join(sorted(missing)))
-            raw = r.read_sheet("Raw").rows
-            if len(raw) < 3:
-                return ImportValidation(False, "Raw sheet does not contain enough rows.")
-            headers = [str(x).strip() if x is not None else "" for x in raw[1]]
+                return ImportValidation(False, "Unified import is missing worksheet(s): " + ", ".join(missing))
+
+            raw = r.read_sheet(resolved["Raw"]).rows
             needed = {
                 "Standard Description", "Branch", "Area", "RANK", "CLASS",
                 "Avg. Daily Sale (Qty)", "Inv. Qty Total", "DoI (Branch)",
                 "Stock Status (branch)", "Suggested Transfer"
             }
-            missing_cols = needed - set(headers)
-            if missing_cols:
-                return ImportValidation(False, "Raw sheet missing column(s): " + ", ".join(sorted(missing_cols)))
+            raw_header = _find_header_index(raw, needed, max_rows=8)
+            if raw_header is None:
+                return ImportValidation(False, "Raw sheet is missing one or more required SCM columns in its first 8 rows.")
+            if len(raw) <= raw_header + 1:
+                return ImportValidation(False, "Raw sheet does not contain inventory rows below its header.")
 
-            aging_rows = r.read_sheet("Aging").rows
-            if len(aging_rows) < 2:
-                return ImportValidation(False, "Aging sheet does not contain inventory rows.")
-            aging_headers = {_clean(x).upper() for x in aging_rows[0] if _clean(x)}
+            aging_rows = r.read_sheet(resolved["Aging"]).rows
             aging_needed = {"BRANCH", "INCOMING DATE", "CREATED ON", "STANDARD DESCRIPTION"}
-            aging_missing = aging_needed - aging_headers
-            if aging_missing:
-                return ImportValidation(False, "Aging sheet missing column(s): " + ", ".join(sorted(aging_missing)))
+            aging_header = None
+            for idx, row in enumerate(aging_rows[:8]):
+                headers = {_clean(x).upper() for x in row if _clean(x)}
+                if aging_needed.issubset(headers):
+                    aging_header = idx
+                    break
+            if aging_header is None:
+                return ImportValidation(False, "Aging sheet missing required columns: Branch, Incoming Date, Created On, Standard Description.")
+            if len(aging_rows) <= aging_header + 1:
+                return ImportValidation(False, "Aging sheet does not contain motorcycle inventory rows below its header.")
 
             management_sheet, management_header = DashboardStore._find_management_sheet(r)
             if management_sheet is None or management_header is None:
@@ -205,13 +265,28 @@ class DashboardStore:
             if not valid.ok:
                 raise ValueError(valid.message)
         reader = XlsxReader(path)
-        raw_rows = reader.read_sheet("Raw").rows
-        ytd_rows = reader.read_sheet("KPI_YTD_Input").rows
-        weekly_rows = reader.read_sheet("KPI_WEEKLY_Input").rows
+        raw_sheet = self._resolve_sheet(reader, "Raw")
+        ytd_sheet = self._resolve_sheet(reader, "KPI_YTD_Input")
+        weekly_sheet = self._resolve_sheet(reader, "KPI_WEEKLY_Input")
+        if not raw_sheet or not ytd_sheet or not weekly_sheet:
+            raise ValueError("Unified workbook is missing a required SCM/KPI worksheet.")
+
+        raw_rows = reader.read_sheet(raw_sheet).rows
+        ytd_rows = reader.read_sheet(ytd_sheet).rows
+        weekly_rows = reader.read_sheet(weekly_sheet).rows
+        raw_needed = {
+            "Standard Description", "Branch", "Area", "RANK", "CLASS",
+            "Avg. Daily Sale (Qty)", "Inv. Qty Total", "DoI (Branch)",
+            "Stock Status (branch)", "Suggested Transfer"
+        }
+        raw_header = _find_header_index(raw_rows, raw_needed, max_rows=8)
+        if raw_header is None:
+            raise ValueError("Raw sheet header could not be resolved in the first 8 rows.")
+
         management_sheet, management_header = self._find_management_sheet(reader)
         management_rows = reader.read_sheet(management_sheet).rows if management_sheet else []
 
-        records = self._parse_raw(raw_rows)
+        records = self._parse_raw(raw_rows, raw_header)
         management_records, management_title = self._parse_management(management_rows, management_header or 0)
         kpis = {}
         for name in TARGET_KPIS:
@@ -232,8 +307,8 @@ class DashboardStore:
             self.branches = sorted({r["branch"] for r in records if r["branch"]})
             self.generated_at = datetime.now(timezone(timedelta(hours=8)))
 
-    def _parse_raw(self, rows: List[List[Any]]) -> List[Dict[str, Any]]:
-        headers = [_clean(x) for x in rows[1]]
+    def _parse_raw(self, rows: List[List[Any]], header_index: int = 1) -> List[Dict[str, Any]]:
+        headers = [_clean(x) for x in rows[header_index]]
         first_idx: Dict[str, int] = {}
         for i, h in enumerate(headers):
             if h and h not in first_idx:
@@ -244,7 +319,7 @@ class DashboardStore:
             return row[i] if i is not None and i < len(row) else None
 
         records: List[Dict[str, Any]] = []
-        for row in rows[2:]:
+        for row in rows[header_index + 1:]:
             model = _clean(get(row, "Standard Description"))
             branch = _clean(get(row, "Branch"))
             if not model or not branch:

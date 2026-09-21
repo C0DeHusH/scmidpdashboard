@@ -1,6 +1,8 @@
-> **v2.46.2:** Admin access reliability release. Management Order Plan, Branch Request Simulator, Delivery Plan, Data Operations, and Aging Admin actions now use an application-specific session cookie, durable local signing key, explicit browser credentials, and automatic re-authentication handling.
+> **v2.46.3:** Unified Data Refresh recovery release. Imports are now fully preflighted before commit, tolerate harmless worksheet/header placement differences, preserve prior data transactionally, and always return a readable stage/reference when an import cannot be completed.
+>
+> **v2.46.2:** Admin access reliability release. Management Order Plan, Branch Request Simulator, Delivery Plan, Data Operations, and Aging Admin actions use an application-specific session cookie, durable local signing key, explicit browser credentials, and automatic re-authentication handling.
 
-# SCM Inventory & Distribution Planning Control Tower — v2.46.2
+# SCM Inventory & Distribution Planning Control Tower — v2.46.3
 
 
 A unified local Flask control tower for:
@@ -87,6 +89,12 @@ python -m unittest discover -s tests -v
 ```
 
 For the detailed findings and intentionally deferred refactors, see `CODE_AUDIT_v2.46.0.md`.
+## v2.46.3 Unified Data Refresh recovery
+
+The consolidated workbook import now uses a staged transaction: workbook signature check → SCM/KPI/Management preflight → Aging preflight → full in-memory dashboard parse → rollback snapshot → Aging refresh → atomic workbook commit → publish. Core data is not replaced until validation and parsing complete. Unexpected server errors are returned as JSON with an import reference and are written to `uploads/logs/unified_import_errors.log` for local diagnostics. Worksheet names tolerate spaces/underscores/hyphens and Raw/Aging header rows can appear within the first eight rows.
+
+See `RELEASE_NOTES_v2.46.3.md` for details.
+
 ## v2.46.2 Admin access reliability
 
 The local Admin session no longer uses Flask's generic `session` cookie. The dashboard now uses `scm_idp_admin`, which prevents other local Flask applications from overwriting SCM authentication on the same hostname. A per-user signing key also survives version-folder upgrades, protected browser requests explicitly send same-origin credentials, and stale Admin pages redirect to `/login` instead of showing misleading authorization failures.
