@@ -17,7 +17,7 @@ from dashboard.cloud_state import VercelBlobState
 from dashboard.metrics import DashboardStore, TARGET_KPIS
 from dashboard.xlsx_reader import XlsxReader
 from dashboard.xlsx_export import build_delivery_plan_xlsx
-from dashboard.aging.exporter import build_aging_report_xlsx
+from dashboard.aging.exporter import build_aging_report_xlsx, build_aging_source_format_xlsx, AGING_SOURCE_HEADERS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -417,11 +417,58 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn('Highest Value → Lowest', template)
         self.assertIn('@aging_bp.get("/export.xlsx")', routes)
         self.assertIn('apply_unit_filters(rows, unit_filters)', routes)
-        self.assertIn('data-aging-export-mode="unit"', template)
+        # v2.48.5 keeps Unit-Level Traceability focused on view controls only.
+        self.assertNotIn('data-aging-export-mode="unit"', template)
+        self.assertNotIn('Export Excel', template)
+        self.assertIn('Reset Unit View', template)
         self.assertIn("buildLiveExportUrl", aging_js)
-        self.assertIn("params.set('detail','1')", aging_js)
         self.assertIn("/aging/partial/units", aging_js)
         self.assertNotIn("requestSubmit()", aging_js)
+
+    def test_main_aging_export_uses_import_style_detail_rows(self):
+        units = [{
+            "branch_name": "GREATWALL", "branch_original": "GREATWALL", "incoming_date": "2026-08-31",
+            "created_on": "2026-08-31", "barcode": "KA0071", "description": "CT125AE CT125A (BLACK/BLUE)",
+            "qty": 1, "standard_description": "CT125", "amount": 59246, "company": "MUTI",
+            "engine_no": "ENG-1", "chassis": "CH-1", "location": "M-HO/Stock", "brand": "KAWASAKI",
+            "color": "BLACK/GRAY",
+        }]
+        payload = build_aging_source_format_xlsx(unit_rows=units, as_of="2026-09-21")
+        with tempfile.NamedTemporaryFile(suffix=".xlsx") as temp:
+            temp.write(payload); temp.flush()
+            wb = load_workbook(temp.name, read_only=False, data_only=True)
+            self.assertEqual(wb.sheetnames, ["Aging"])
+            ws = wb["Aging"]
+            self.assertEqual([ws.cell(1, c).value for c in range(1, 22)], AGING_SOURCE_HEADERS)
+            self.assertEqual(ws.max_row, 2)
+            self.assertEqual(ws["A2"].value, "GREATWALL")
+            self.assertEqual(ws["G2"].value, "CT125")
+            self.assertEqual(ws["J2"].value, "ENG-1")
+            self.assertEqual(ws["K2"].value, "CH-1")
+            self.assertEqual(ws["R2"].value, 21)
+            self.assertEqual(ws["T2"].value, "1-30 DAYS")
+            self.assertEqual(ws.auto_filter.ref, "A1:U2")
+            self.assertEqual(ws.freeze_panes, "A2")
+            wb.close()
+
+        routes = (ROOT / "dashboard" / "aging" / "routes.py").read_text(encoding="utf-8")
+        aging_js = (ROOT / "static" / "aging" / "js" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("build_aging_source_format_xlsx", routes)
+        self.assertIn('filename = f"Aging_Report_Filtered_', routes)
+        self.assertIn("const isUnit=anchor.dataset.agingExportMode==='unit'", aging_js)
+        self.assertIn("isUnit?globalParams():new URLSearchParams(new FormData($('#filterForm')))" , aging_js)
+
+        dashboard_template = (ROOT / "templates" / "aging" / "dashboard.html").read_text(encoding="utf-8")
+        live_filter_head = dashboard_template.split('<div class="filter-grid', 1)[0]
+        self.assertNotIn('Export Aging Excel', live_filter_head)
+        self.assertNotIn('CSV Data', live_filter_head)
+        self.assertIn('class="aging-export-center mt-3"', dashboard_template)
+        self.assertEqual(dashboard_template.count('id="agingExportXlsx"'), 1)
+        self.assertEqual(dashboard_template.count('id="agingExportCsv"'), 1)
+        self.assertEqual(dashboard_template.count('id="agingExportRowCount"'), 1)
+        self.assertIn("exportCount.innerHTML", aging_js)
+        self.assertIn('Aging unit details', dashboard_template)
+        self.assertIn('Raw unit details', dashboard_template)
 
     def test_aging_export_builds_professional_multisheet_workbook(self):
         summary = {

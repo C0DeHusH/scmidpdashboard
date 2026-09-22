@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from copy import copy
+from datetime import date, datetime, timezone
 from io import BytesIO
+from pathlib import Path
 from typing import Any, Iterable
 from xml.sax.saxutils import escape
 import zipfile
+
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 
 
 def _col_letter(index: int) -> str:
@@ -115,6 +120,199 @@ def _aging_action(days: int) -> str:
         return "Sell / transfer / branch action"
     return "Normal rotation / monitor"
 
+
+
+AGING_SOURCE_HEADERS = [
+    "BRANCH", "INCOMING DATE", "CREATED ON", "BARCODE", "DESCRIPTION", "QTY",
+    "STANDARD DESCRIPTION", "AMOUNT", "COMPANY", "ENGINE NO.", "CHASS.", "LOCATION",
+    "BRAND", "COLOR", "MONTH", "DAY", "YEAR", "AGING DAYS BRANCH",
+    "AGING DAYS COMPANY", "AGING BRANCH", "AGING COMPANY",
+]
+
+
+def _source_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not value:
+        return None
+    text = str(value).strip()[:10]
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _source_age(as_of_date: date, value: Any) -> int:
+    source = _source_date(value)
+    return max((as_of_date - source).days, 0) if source else 0
+
+
+def _source_bucket(days: int) -> str:
+    if days <= 30:
+        return "1-30 DAYS"
+    if days <= 60:
+        return "31-60 DAYS"
+    if days <= 90:
+        return "61-90 DAYS"
+    return "91 DAYS UP"
+
+
+def _find_source_header_row(ws) -> int | None:
+    required = {"BRANCH", "INCOMING DATE", "CREATED ON", "STANDARD DESCRIPTION"}
+    for row_no in range(1, min(ws.max_row, 8) + 1):
+        values = {str(ws.cell(row_no, c).value or "").strip().upper() for c in range(1, ws.max_column + 1)}
+        if required.issubset(values):
+            return row_no
+    return None
+
+
+def build_aging_source_format_xlsx(
+    *,
+    unit_rows: list[dict[str, Any]],
+    as_of: str,
+    source_workbook_path: str | Path | None = None,
+) -> bytes:
+    """Export filtered units in the same row/column layout as the imported Aging sheet.
+
+    This export is intentionally detail-first: the first visible row is the same
+    21-column Aging header used by the unified import and every subsequent row is
+    one motorcycle unit.  When the active imported workbook is available, header
+    formatting, column widths and representative row formatting are copied from
+    that source so the download remains familiar to operations users.
+    """
+    try:
+        report_date = datetime.strptime(as_of, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        report_date = date.today()
+
+    source_wb = None
+    source_ws = None
+    source_header_row = None
+    source_path = Path(source_workbook_path) if source_workbook_path else None
+    if source_path and source_path.exists():
+        try:
+            source_wb = load_workbook(source_path, read_only=False, data_only=True)
+            if "Aging" in source_wb.sheetnames:
+                source_ws = source_wb["Aging"]
+            else:
+                for ws in source_wb.worksheets:
+                    if _find_source_header_row(ws):
+                        source_ws = ws
+                        break
+            if source_ws is not None:
+                source_header_row = _find_source_header_row(source_ws)
+        except Exception:
+            source_wb = None
+            source_ws = None
+            source_header_row = None
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Aging"
+
+    # Preserve the imported report's familiar header appearance where possible.
+    for col_idx, header in enumerate(AGING_SOURCE_HEADERS, start=1):
+        dest = ws.cell(1, col_idx, header)
+        if source_ws is not None and source_header_row:
+            src = source_ws.cell(source_header_row, col_idx)
+            if src.value not in (None, ""):
+                dest.value = src.value
+            if src.has_style:
+                dest._style = copy(src._style)
+            if src.number_format:
+                dest.number_format = src.number_format
+            if src.alignment:
+                dest.alignment = copy(src.alignment)
+        else:
+            dest.fill = PatternFill("solid", fgColor="1F4E78")
+            dest.font = Font(color="FFFFFF", bold=True)
+            dest.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    if source_ws is not None:
+        for col_idx in range(1, len(AGING_SOURCE_HEADERS) + 1):
+            letter = ws.cell(1, col_idx).column_letter
+            src_dim = source_ws.column_dimensions.get(letter)
+            if src_dim and src_dim.width:
+                minimums = [18, 18, 18, 14, 42, 8, 34, 14, 14, 24, 24, 22, 14, 18, 10, 8, 9, 18, 20, 18, 18]
+                ws.column_dimensions[letter].width = max(float(src_dim.width), minimums[col_idx - 1])
+        if source_header_row and source_ws.row_dimensions[source_header_row].height:
+            ws.row_dimensions[1].height = source_ws.row_dimensions[source_header_row].height
+    else:
+        widths = [18, 18, 18, 14, 42, 8, 34, 14, 14, 24, 24, 22, 14, 18, 10, 8, 9, 18, 20, 18, 18]
+        for col_idx, width in enumerate(widths, start=1):
+            ws.column_dimensions[ws.cell(1, col_idx).column_letter].width = width
+        ws.row_dimensions[1].height = 28
+
+    style_source_row = (source_header_row + 1) if source_ws is not None and source_header_row and source_ws.max_row > source_header_row else None
+
+    for out_row, unit in enumerate(unit_rows, start=2):
+        created = _source_date(unit.get("created_on"))
+        incoming = _source_date(unit.get("incoming_date"))
+        calendar_date = created or incoming
+        age_branch = _source_age(report_date, created)
+        age_company = _source_age(report_date, incoming)
+        qty = float(unit.get("qty") or 0)
+        if qty.is_integer():
+            qty = int(qty)
+        values = [
+            unit.get("branch_name") or unit.get("branch_original") or unit.get("branch_key") or "",
+            incoming,
+            created,
+            unit.get("barcode") or "",
+            unit.get("description") or "",
+            qty,
+            unit.get("standard_description") or unit.get("description") or "",
+            _money(unit.get("amount", 0)),
+            unit.get("company") or "",
+            unit.get("engine_no") or "",
+            unit.get("chassis") or "",
+            unit.get("location") or "",
+            unit.get("brand") or "",
+            unit.get("color") or "",
+            calendar_date.strftime("%b").upper() if calendar_date else "",
+            calendar_date.day if calendar_date else "",
+            calendar_date.year if calendar_date else "",
+            age_branch,
+            age_company,
+            _source_bucket(age_branch),
+            _source_bucket(age_company),
+        ]
+        for col_idx, value in enumerate(values, start=1):
+            cell = ws.cell(out_row, col_idx, value)
+            if source_ws is not None and style_source_row:
+                src = source_ws.cell(style_source_row, col_idx)
+                if src.has_style:
+                    cell._style = copy(src._style)
+                if src.number_format:
+                    cell.number_format = src.number_format
+                if src.alignment:
+                    cell.alignment = copy(src.alignment)
+            if col_idx in (2, 3) and value:
+                cell.number_format = "m/d/yyyy"
+            elif col_idx == 8:
+                cell.number_format = '#,##0.00'
+            elif col_idx in (6, 16, 17, 18, 19):
+                cell.number_format = '0'
+
+    last_row = max(1, len(unit_rows) + 1)
+    ws.auto_filter.ref = f"A1:U{last_row}"
+    ws.freeze_panes = "A2"
+    ws.sheet_view.showGridLines = True
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_title_rows = "1:1"
+
+    out = BytesIO()
+    wb.save(out)
+    wb.close()
+    if source_wb is not None:
+        source_wb.close()
+    return out.getvalue()
 
 def build_aging_report_xlsx(
     *,
@@ -588,7 +786,7 @@ def build_aging_report_xlsx(
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 <dc:title>Motorcycle Aging Intelligence</dc:title><dc:creator>SCM IDP Control Tower</dc:creator><dc:subject>Aging management export</dc:subject><dcterms:created xsi:type="dcterms:W3CDTF">{generated_utc}</dcterms:created></cp:coreProperties>'''
     app = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>SCM IDP Dashboard</Application><AppVersion>2.48.3</AppVersion></Properties>'''
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>SCM IDP Dashboard</Application><AppVersion>2.48.5</AppVersion></Properties>'''
 
     out = BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:

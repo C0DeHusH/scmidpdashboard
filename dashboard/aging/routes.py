@@ -10,7 +10,7 @@ from flask import Blueprint, Response, flash, jsonify, redirect, render_template
 
 from .analytics import filtered_dataset, summarize, normalize_filters
 from .db import connect, init_db
-from .exporter import build_aging_report_xlsx
+from .exporter import build_aging_report_xlsx, build_aging_source_format_xlsx
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STATE_ROOT = Path(os.environ.get("SCM_DATA_DIR", str(PROJECT_ROOT / "uploads")))
@@ -350,29 +350,30 @@ def export_xlsx():
         latest_import = conn.execute("SELECT * FROM imports ORDER BY id DESC LIMIT 1").fetchone()
     source_filename = latest_import["filename"] if latest_import else ""
     detail_view = request.args.get("detail", "").strip() == "1"
-    filtered_scope = bool(
-        any(filters.get(key) for key in ("area", "branch", "brand", "std", "q"))
-        or unit_filters.get("age", "all") != "all"
-        or unit_filters.get("q", "")
-        or unit_filters.get("sort", "oldest") != "oldest"
-    )
-    payload = build_aging_report_xlsx(
-        summary=summary,
-        unit_rows=unit_rows,
-        as_of=as_of.isoformat(),
-        basis=basis,
-        filters=filters,
-        unit_filters=unit_filters,
-        source_filename=source_filename,
-        filter_warnings=filter_warnings,
-        base_row_count=len(rows),
-        active_sheet="Unit Detail" if (detail_view or filtered_scope) else "Executive Summary",
-    )
-    filename = (
-        f"Unit_Trace_Aging_Action_List_{as_of.isoformat()}.xlsx"
-        if detail_view
-        else f"Motorcycle_Aging_Intelligence_{as_of.isoformat()}.xlsx"
-    )
+    if detail_view:
+        payload = build_aging_report_xlsx(
+            summary=summary,
+            unit_rows=unit_rows,
+            as_of=as_of.isoformat(),
+            basis=basis,
+            filters=filters,
+            unit_filters=unit_filters,
+            source_filename=source_filename,
+            filter_warnings=filter_warnings,
+            base_row_count=len(rows),
+            active_sheet="Unit Detail",
+        )
+        filename = f"Unit_Trace_Aging_Action_List_{as_of.isoformat()}.xlsx"
+    else:
+        # Main Aging export intentionally mirrors the imported Aging report:
+        # one visible row per unit, same 21-column operational layout, with the
+        # current Area / Branch / Brand / Model / unit filters already applied.
+        payload = build_aging_source_format_xlsx(
+            unit_rows=unit_rows,
+            as_of=as_of.isoformat(),
+            source_workbook_path=STATE_ROOT / "active_import.xlsx",
+        )
+        filename = f"Aging_Report_Filtered_{as_of.isoformat()}.xlsx"
     return send_file(
         io.BytesIO(payload),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

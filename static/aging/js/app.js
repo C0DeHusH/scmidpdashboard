@@ -87,6 +87,11 @@
     const q=form.elements.namedItem('q'); if(q)q.value=filters.q||'';
     const xlsx=$('#agingExportXlsx'); if(xlsx)xlsx.href=data.export_xlsx||xlsx.href;
     const csv=$('#agingExportCsv'); if(csv)csv.href=data.export_csv||csv.href;
+    const exportCount=$('#agingExportRowCount');
+    if(exportCount){
+      const count=Number(data.row_count||0);
+      exportCount.innerHTML=`<strong>${count.toLocaleString()}</strong>&nbsp; filtered rows`;
+    }
     const hero=$('#workspaceHeroMeta');
     if(hero){
       hero.innerHTML=`<span class="workspace-chip"><span class="workspace-chip-dot"></span>Local Control Tower</span><span class="workspace-chip">As of · <strong>${escapeHtml(data.as_of||'—')}</strong></span><span class="workspace-chip">Basis · <strong>${data.basis==='company'?'Company':'Branch'}</strong></span><span class="workspace-chip">Access · <strong>${escapeHtml(document.body.dataset.role||'')}</strong></span>`;
@@ -112,8 +117,12 @@
   function buildLiveExportUrl(anchor){
     const endpoint=anchor?.dataset?.agingExportEndpoint;
     if(!endpoint)return anchor?.href||'#';
-    const params=globalParams();
-    if(anchor.dataset.agingExportMode==='unit')params.set('detail','1');
+    const isUnit=anchor.dataset.agingExportMode==='unit';
+    // Main Aging export follows only the global Aging filters (Area / Branch /
+    // Brand / Model / unit key). Unit Trace-only search/band/sort must never
+    // silently empty the main Aging workbook.
+    const params=isUnit?globalParams():new URLSearchParams(new FormData($('#filterForm')));
+    if(isUnit)params.set('detail','1');
     const query=params.toString();
     return `${endpoint}${query?`?${query}`:''}`;
   }
