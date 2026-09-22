@@ -417,6 +417,9 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn('Highest Value → Lowest', template)
         self.assertIn('@aging_bp.get("/export.xlsx")', routes)
         self.assertIn('apply_unit_filters(rows, unit_filters)', routes)
+        self.assertIn('data-aging-export-mode="unit"', template)
+        self.assertIn("buildLiveExportUrl", aging_js)
+        self.assertIn("params.set('detail','1')", aging_js)
         self.assertIn("/aging/partial/units", aging_js)
         self.assertNotIn("requestSubmit()", aging_js)
 
@@ -447,7 +450,9 @@ class DashboardCoreSmokeTests(unittest.TestCase):
             self.assertEqual(wb["Area Intelligence"]["B6"].value, "AREA I")
             self.assertEqual(wb["Model Intelligence"].freeze_panes, "C5")
             self.assertEqual(wb["Unit Detail"].freeze_panes, "C6")
-            self.assertEqual(wb["Unit Detail"].auto_filter.ref, "A5:N6")
+            self.assertEqual(wb["Unit Detail"].auto_filter.ref, "A5:Q6")
+            self.assertEqual(wb["Unit Detail"]["D6"].value, None)
+            self.assertEqual(wb["Unit Detail"]["K6"].value, "Critical review / liquidation plan")
             wb.close()
 
 

@@ -1,0 +1,8 @@
+
+[2026-09-22T11:18:27+08:00] reference=IMP-20260922-111820-44CF stage=committing unified workbook
+OSError: [WinError 17] The system cannot move the file to a different disk drive: 'C:\\Users\\User\\AppData\\Local\\Temp\\scm-idp-dashboard-imports\\unified_import_i812o5qs.xlsx' -> 'D:\\DOWNLOADS\\scmidpdashboard-v2.48.3-filtered-aging-export\\scmidpdashboard-v2.48.3-filtered-aging-export\\uploads\\active_import.xlsx'
+Traceback (most recent call last):
+  File "D:\DOWNLOADS\scmidpdashboard-v2.48.3-filtered-aging-export\scmidpdashboard-v2.48.3-filtered-aging-export\app.py", line 1093, in admin_import
+    os.replace(tmp, active)
+    ~~~~~~~~~~^^^^^^^^^^^^^
+OSError: [WinError 17] The system cannot move the file to a different disk drive: 'C:\\Users\\User\\AppData\\Local\\Temp\\scm-idp-dashboard-imports\\unified_import_i812o5qs.xlsx' -> 'D:\\DOWNLOADS\\scmidpdashboard-v2.48.3-filtered-aging-export\\scmidpdashboard-v2.48.3-filtered-aging-export\\uploads\\active_import.xlsx'

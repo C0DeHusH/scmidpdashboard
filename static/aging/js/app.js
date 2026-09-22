@@ -109,6 +109,24 @@
     return params;
   }
 
+  function buildLiveExportUrl(anchor){
+    const endpoint=anchor?.dataset?.agingExportEndpoint;
+    if(!endpoint)return anchor?.href||'#';
+    const params=globalParams();
+    if(anchor.dataset.agingExportMode==='unit')params.set('detail','1');
+    const query=params.toString();
+    return `${endpoint}${query?`?${query}`:''}`;
+  }
+
+  document.addEventListener('click',event=>{
+    const anchor=event.target.closest?.('[data-aging-export-endpoint]');
+    if(!anchor)return;
+    event.preventDefault();
+    const url=buildLiveExportUrl(anchor);
+    anchor.href=url;
+    window.location.assign(url);
+  });
+
   window.refreshAgingView=async function refreshAgingView({reset=false}={}){
     const summaryRegion=$('#agingSummaryRegion');
     const resultsRegion=$('#agingResultsRegion');

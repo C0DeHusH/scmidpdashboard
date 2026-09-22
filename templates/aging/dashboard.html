@@ -17,8 +17,8 @@
     <div class="flex flex-wrap items-center gap-2">
       <span id="filterStatus" class="filter-status"><span class="status-dot"></span>Auto update on</span>
       <button id="agingResetFilters" type="button" class="btn-secondary">Reset Filters</button>
-      <a id="agingExportXlsx" class="btn-primary aging-export-primary" href="{{ url_for('aging.export_xlsx', **export_args) }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>Export Aging Excel</a>
-      <a id="agingExportCsv" class="btn-secondary" href="{{ url_for('aging.export_csv', **export_args) }}">CSV Data</a>
+      <a id="agingExportXlsx" class="btn-primary aging-export-primary" data-aging-export-endpoint="{{ url_for('aging.export_xlsx') }}" data-aging-export-mode="aging" href="{{ url_for('aging.export_xlsx', **export_args) }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>Export Aging Excel</a>
+      <a id="agingExportCsv" class="btn-secondary" data-aging-export-endpoint="{{ url_for('aging.export_csv') }}" data-aging-export-mode="aging" href="{{ url_for('aging.export_csv', **export_args) }}">CSV Data</a>
     </div>
   </div>
   <div class="filter-grid filter-grid-seven">
@@ -27,10 +27,10 @@
     <label class="field"><span>Area</span><select id="areaFilter" class="auto-filter-control" name="area"><option value="">All Areas</option>{% for x in options.areas %}<option value="{{ x }}" {% if filters.area==x %}selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
     <label class="field"><span>Branch</span><select id="branchFilter" class="auto-filter-control" name="branch"><option value="">All Branches{% if filters.area %} in {{ filters.area }}{% endif %}</option>{% for x in options.branches %}<option value="{{ x.branch_key }}" {% if filters.branch==x.branch_key %}selected{% endif %}>{{ x.branch_name }}</option>{% endfor %}</select></label>
     <label class="field"><span>Brand</span><select class="auto-filter-control" name="brand"><option value="">All Brands</option>{% for x in options.brands %}<option value="{{ x }}" {% if filters.brand==x %}selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
-    <label class="field filter-search"><span>Standard Description</span><div class="input-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4" stroke-linecap="round"/></svg><input class="auto-filter-text" name="std" value="{{ filters.std }}" placeholder="Search model..."></div></label>
+    <label class="field filter-search"><span>Model / Standard Description</span><div class="input-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4" stroke-linecap="round"/></svg><input class="auto-filter-text" name="std" value="{{ filters.std }}" placeholder="Search model..."></div></label>
     <label class="field filter-search"><span>Engine / Chassis / Barcode</span><div class="input-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4" stroke-linecap="round"/></svg><input class="auto-filter-text" name="q" value="{{ filters.q }}" placeholder="Search unit..."></div></label>
   </div>
-  <div class="filter-foot">The unit table is simplified to show the exact <b>Age Days</b>, while the charts summarize aging automatically for management review. <b>Excel Export:</b> Executive Summary + Per Area + Model Intelligence + Unit Detail + Data Dictionary.</div>
+  <div class="filter-foot">The unit table is simplified to show the exact <b>Age Days</b>, while the charts summarize aging automatically for management review. <b>Excel Export:</b> captures the live Area / Branch / Model scope and includes Executive Summary + Per Area + Model Intelligence + full filtered Unit Detail + Data Dictionary.</div>
 </form>
 
 <div id="agingResultsRegion" class="partial-refresh-region" aria-live="polite">

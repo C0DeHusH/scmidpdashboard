@@ -349,6 +349,13 @@ def export_xlsx():
     with connect() as conn:
         latest_import = conn.execute("SELECT * FROM imports ORDER BY id DESC LIMIT 1").fetchone()
     source_filename = latest_import["filename"] if latest_import else ""
+    detail_view = request.args.get("detail", "").strip() == "1"
+    filtered_scope = bool(
+        any(filters.get(key) for key in ("area", "branch", "brand", "std", "q"))
+        or unit_filters.get("age", "all") != "all"
+        or unit_filters.get("q", "")
+        or unit_filters.get("sort", "oldest") != "oldest"
+    )
     payload = build_aging_report_xlsx(
         summary=summary,
         unit_rows=unit_rows,
@@ -359,8 +366,13 @@ def export_xlsx():
         source_filename=source_filename,
         filter_warnings=filter_warnings,
         base_row_count=len(rows),
+        active_sheet="Unit Detail" if (detail_view or filtered_scope) else "Executive Summary",
     )
-    filename = f"Motorcycle_Aging_Intelligence_{as_of.isoformat()}.xlsx"
+    filename = (
+        f"Unit_Trace_Aging_Action_List_{as_of.isoformat()}.xlsx"
+        if detail_view
+        else f"Motorcycle_Aging_Intelligence_{as_of.isoformat()}.xlsx"
+    )
     return send_file(
         io.BytesIO(payload),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

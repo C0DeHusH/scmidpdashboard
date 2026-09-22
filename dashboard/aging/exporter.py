@@ -106,6 +106,16 @@ def _risk_style(level: str) -> int:
     return {"High": 18, "Watch": 19, "Controlled": 20}.get(str(level), 10)
 
 
+def _aging_action(days: int) -> str:
+    if days > 365:
+        return "Critical review / liquidation plan"
+    if days > 180:
+        return "Priority sell / transfer action"
+    if days > 90:
+        return "Sell / transfer / branch action"
+    return "Normal rotation / monitor"
+
+
 def build_aging_report_xlsx(
     *,
     summary: dict[str, Any],
@@ -117,6 +127,7 @@ def build_aging_report_xlsx(
     source_filename: str = "",
     filter_warnings: list[str] | None = None,
     base_row_count: int | None = None,
+    active_sheet: str = "Executive Summary",
 ) -> bytes:
     """Build a management-ready multi-sheet Motorcycle Aging workbook.
 
@@ -373,22 +384,29 @@ def build_aging_report_xlsx(
     # Sheet 4: Unit Detail
     # ------------------------------------------------------------------
     unit_headers = [
-        "Branch", "Area", "Standard Description", "Brand", "Engine No.", "Chassis", "Created On",
-        "Incoming Date", "Age Days", "Qty", "Unit Cost", "Inventory Value", "Location", "Barcode"
+        "Branch", "Area", "Standard Description", "Description", "Brand", "Engine No.", "Chassis",
+        "Created On", "Incoming Date", "Age Days", "Aging Action", "Qty", "Unit Cost", "Inventory Value",
+        "Location", "Color", "Barcode"
     ]
+    scope_text = (
+        f"Area: {filters.get('area') or 'All Areas'} · Branch: {filters.get('branch') or 'All Branches'} · "
+        f"Brand: {filters.get('brand') or 'All Brands'} · Model: {filters.get('std') or 'All Models'} · "
+        f"Unit key: {filters.get('q') or 'None'} · Trace band: {unit_filters.get('age','all')} · "
+        f"Trace search: {unit_filters.get('q') or 'None'} · Sort: {unit_filters.get('sort','oldest')}"
+    )
     unit_sheet_rows: list[str] = [
-        _row(1, [_cell("A1", "UNIT-LEVEL AGING TRACEABILITY", 1)], height=28),
-        _row(2, [_cell("A2", f"{len(unit_rows):,} matching rows · {as_of} · {basis_label}", 2)], height=20),
-        _row(3, [_cell("A3", f"Unit filter: {unit_filters.get('age','all')} · Sort: {unit_filters.get('sort','oldest')} · Search: {unit_filters.get('q') or 'None'}", 22)], height=18),
+        _row(1, [_cell("A1", "UNIT-LEVEL AGING TRACEABILITY & ACTION LIST", 1)], height=28),
+        _row(2, [_cell("A2", f"{len(unit_rows):,} exported detail rows from {base_row_count:,} dashboard rows · {as_of} · {basis_label}", 2)], height=20),
+        _row(3, [_cell("A3", scope_text, 22)], height=28),
         _row(5, [_cell(f"{_col_letter(i)}5", h, 9) for i, h in enumerate(unit_headers, start=1)], height=24),
     ]
-    unit_merges = ["A1:N1", "A2:N2", "A3:N3"]
+    unit_merges = ["A1:Q1", "A2:Q2", "A3:Q3"]
     if not unit_rows:
         reason = "No units matched the Unit-Level Traceability filters." if base_row_count else "No records matched the current dashboard filters."
         unit_sheet_rows.append(_row(6, [
-            _cell("A6", reason + " Review Applied Filters in Executive Summary.", 17),
+            _cell("A6", reason + " Review the filter scope above or Applied Filters in Executive Summary.", 17),
         ], height=28))
-        unit_merges.append("A6:N6")
+        unit_merges.append("A6:Q6")
     for idx, u in enumerate(unit_rows, start=1):
         r = 5 + idx
         style = 10 if idx % 2 else 11
@@ -397,24 +415,28 @@ def build_aging_report_xlsx(
             _cell(f"A{r}", u.get("branch_name"), style),
             _cell(f"B{r}", u.get("area"), style),
             _cell(f"C{r}", u.get("standard_description"), style),
-            _cell(f"D{r}", u.get("brand"), style),
-            _cell(f"E{r}", u.get("engine_no"), style),
-            _cell(f"F{r}", u.get("chassis"), style),
-            _cell(f"G{r}", u.get("created_on"), style),
-            _cell(f"H{r}", u.get("incoming_date"), style),
-            _cell(f"I{r}", age, _age_style(age), numeric=True),
-            _cell(f"J{r}", u.get("qty", 0), 6, numeric=True),
-            _cell(f"K{r}", _money(u.get("amount", 0)), 7, numeric=True),
-            _cell(f"L{r}", _money(u.get("inventory_value", 0)), 7, numeric=True),
-            _cell(f"M{r}", u.get("location"), style),
-            _cell(f"N{r}", u.get("barcode"), style),
+            _cell(f"D{r}", u.get("description"), style),
+            _cell(f"E{r}", u.get("brand"), style),
+            _cell(f"F{r}", u.get("engine_no"), style),
+            _cell(f"G{r}", u.get("chassis"), style),
+            _cell(f"H{r}", u.get("created_on"), style),
+            _cell(f"I{r}", u.get("incoming_date"), style),
+            _cell(f"J{r}", age, _age_style(age), numeric=True),
+            _cell(f"K{r}", _aging_action(age), style),
+            _cell(f"L{r}", u.get("qty", 0), 6, numeric=True),
+            _cell(f"M{r}", _money(u.get("amount", 0)), 7, numeric=True),
+            _cell(f"N{r}", _money(u.get("inventory_value", 0)), 7, numeric=True),
+            _cell(f"O{r}", u.get("location"), style),
+            _cell(f"P{r}", u.get("color"), style),
+            _cell(f"Q{r}", u.get("barcode"), style),
         ], height=20))
     unit_end = max(6, 5 + len(unit_rows))
     sheet4 = _sheet_xml(
         unit_sheet_rows,
-        [(1, 24), (2, 14), (3, 42), (4, 14), (5, 22), (6, 23), (7, 13), (8, 13), (9, 10), (10, 8), (11, 14), (12, 16), (13, 22), (14, 19)],
+        [(1, 24), (2, 14), (3, 34), (4, 40), (5, 14), (6, 22), (7, 23), (8, 13), (9, 13),
+         (10, 10), (11, 31), (12, 8), (13, 14), (14, 16), (15, 22), (16, 15), (17, 19)],
         merges=unit_merges,
-        autofilter=f"A5:N{unit_end}",
+        autofilter=f"A5:Q{unit_end}",
         freeze_rows=5,
         freeze_cols=2,
         top_left="C6",
@@ -428,16 +450,20 @@ def build_aging_report_xlsx(
         ("Branch", "Branch currently holding or assigned to the motorcycle unit."),
         ("Area", "Operational / geographic cluster mapped to the branch."),
         ("Standard Description", "Standardized motorcycle model description used for grouping."),
+        ("Description", "Original imported motorcycle description for detailed traceability."),
         ("Brand", "Motorcycle manufacturer or supplier brand."),
         ("Engine No.", "Unique engine identifier used for unit-level traceability."),
         ("Chassis", "Unique frame / chassis identifier."),
         ("Created On", "Branch aging basis date."),
         ("Incoming Date", "Company aging basis date."),
         ("Age Days", "Exact elapsed days from the selected aging basis date to the report as-of date."),
+        ("Aging Action", "Operational action guide derived from Age Days: normal rotation, action, priority action, or critical review."),
         ("Qty", "Quantity represented by the row."),
         ("Unit Cost", "Imported unit amount / cost basis."),
         ("Inventory Value", "Qty multiplied by Unit Cost."),
         ("Location", "Original location reference from the consolidated import file."),
+        ("Color", "Imported motorcycle color, when available."),
+        ("Barcode", "Imported barcode / item reference, when available."),
         ("91+ Units", "Units whose Age Days are greater than 90."),
         ("Aged Value", "Inventory value tied to units over 90 days."),
         ("Exposure", "High ≥40% aged; Watch ≥20%; Controlled <20%, using 91+ share of model inventory."),
@@ -544,7 +570,12 @@ def build_aging_report_xlsx(
 <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
 <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
 </Relationships>'''
-    workbook_xml = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>', '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>']
+    active_index = next((i for i, (name, _) in enumerate(sheets) if name == active_sheet), 0)
+    workbook_xml = [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
+        f'<bookViews><workbookView activeTab="{active_index}"/></bookViews><sheets>',
+    ]
     workbook_rels = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>', '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">']
     for i, (name, _) in enumerate(sheets, start=1):
         workbook_xml.append(f'<sheet name="{escape(name)}" sheetId="{i}" r:id="rId{i}"/>')
@@ -557,7 +588,7 @@ def build_aging_report_xlsx(
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 <dc:title>Motorcycle Aging Intelligence</dc:title><dc:creator>SCM IDP Control Tower</dc:creator><dc:subject>Aging management export</dc:subject><dcterms:created xsi:type="dcterms:W3CDTF">{generated_utc}</dcterms:created></cp:coreProperties>'''
     app = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>SCM IDP Dashboard</Application><AppVersion>2.48.2</AppVersion></Properties>'''
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>SCM IDP Dashboard</Application><AppVersion>2.48.3</AppVersion></Properties>'''
 
     out = BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
