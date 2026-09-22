@@ -4,10 +4,13 @@ from flask import Flask, jsonify, render_template, request, session, redirect, u
 from pathlib import Path
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal, ROUND_HALF_UP
+from html import escape as html_escape
 from copy import deepcopy
 from functools import wraps
 from dotenv import load_dotenv
 import hmac
+import math
 import hashlib
 import os
 import shutil
@@ -30,7 +33,7 @@ from dashboard.cloud_state import VercelBlobState
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env")
 DATA_FILE = BASE / "data" / "MC_Dashboard_IMPORT.xlsx"
-APP_VERSION = "2.47.6"
+APP_VERSION = "2.48.2"
 IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
 
 # Vercel's deployed project filesystem is read-only except for the function's
@@ -655,25 +658,18 @@ def admin_management_allocations():
     return jsonify({"ok": True, "updated": updated, "message": f"Saved {updated} Management planning line(s)."})
 
 
-@app.post("/admin/export/management")
-@admin_required
-def admin_export_management():
-    payload = _json_payload()
+def _prepare_management_output(payload: dict) -> dict:
     incoming = payload.get("orders") or {}
-    try:
-        combined, _ = _merge_management_edits(
-            _load_management_allocations(),
-            incoming,
-            {r["key"] for r in store.management_records},
-        )
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+    combined, _ = _merge_management_edits(
+        _load_management_allocations(),
+        incoming,
+        {r["key"] for r in store.management_records},
+    )
 
     visible_keys = payload.get("keys") or []
     if visible_keys and isinstance(visible_keys, list):
-        # Rebuild all effective rows first, then keep the exact rows currently
-        # visible on screen. This preserves unsaved Brand/Model/Status edits even
-        # when those edits would no longer match the pre-edit filter value.
+        # Build the same effective row set for Excel and direct print. This keeps
+        # on-screen edits aligned with the user's current filtered view.
         data = store.management_dashboard(allocations=combined)
         by_key = {r.get("key"): r for r in data.get("rows", [])}
         data["rows"] = [by_key[k] for k in visible_keys if k in by_key]
@@ -691,11 +687,11 @@ def admin_export_management():
             model=str(payload.get("model") or "All Models"),
             allocations=combined,
         )
-    # Export only actual order lines. Rows with zero Order Quantity stay on the
-    # dashboard for planning but are intentionally excluded from the order file.
+
+    # Output only true order lines, matching the downloaded Excel workbook.
     ordered_rows = [r for r in data.get("rows", []) if float(r.get("allocation", 0) or 0) > 0]
     if not ordered_rows:
-        return jsonify({"error": "No models with Order Quantity greater than zero to export."}), 400
+        raise ValueError("No models with Order Quantity greater than zero to output.")
     data["rows"] = ordered_rows
     data["summary"] = {
         "models": len(ordered_rows),
@@ -704,10 +700,218 @@ def admin_export_management():
         "allocation_order": round(sum(float(r.get("allocation", 0) or 0) for r in ordered_rows), 4),
         "grand_total": round(sum(float(r.get("total_amount", 0) or 0) for r in ordered_rows), 4),
     }
+    return data
+
+
+def _whole_print(value) -> str:
+    try:
+        number = Decimal(str(value or 0)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        return f"{int(number):,}"
+    except Exception:
+        return html_escape(str(value or ""))
+
+
+def _doi_print(value) -> str:
+    try:
+        return f"{int(math.ceil(max(0.0, float(value or 0)))):,}"
+    except Exception:
+        return html_escape(str(value or ""))
+
+
+def _money_print(value) -> str:
+    try:
+        number = Decimal(str(value or 0)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        return f"₱{int(number):,}"
+    except Exception:
+        return "₱0"
+
+
+def _direct_print_document(
+    title: str,
+    body: str,
+    *,
+    orientation: str = "portrait",
+    page_margin: str = ".25in",
+    preview_width: str = "8.5in",
+) -> str:
+    """Return a browser-print document styled to mirror the XLSX report.
+
+    The direct print path deliberately uses the same palette, typography, row
+    heights and proportional column widths as the downloadable workbook.  The
+    browser only renders the final report; no XLSX is created or stored.
+    """
+    safe_title = html_escape(title)
+    orientation = "portrait" if orientation == "portrait" else "landscape"
+    safe_margin = page_margin if page_margin in {".08in", ".25in", ".28in"} else ".25in"
+    safe_preview_width = "11in" if preview_width == "11in" else "8.5in"
+    return f'''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{safe_title}</title>
+<style>
+@page{{size:letter {orientation};margin:{safe_margin}}}
+*{{box-sizing:border-box}}
+html,body{{margin:0;padding:0;background:#fff;color:#0f172a;font-family:Aptos,"Segoe UI",Arial,sans-serif}}
+body{{font-size:8pt;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}}
+.print-sheet{{width:100%;page-break-after:always;break-after:page}}
+.print-sheet:last-child{{page-break-after:auto;break-after:auto}}
+.xls-row{{display:flex;align-items:center;width:100%}}
+.xls-title{{height:24pt;background:#0f172a;color:#fff;font-family:"Aptos Display",Aptos,"Segoe UI",Arial,sans-serif;font-size:14pt;font-weight:800;padding:0 4pt;letter-spacing:0}}
+.xls-title.management{{height:23pt}}
+.xls-subtitle{{height:18pt;background:#1e293b;color:#fbbf24;font-size:8pt;font-weight:800;padding:0 4pt}}
+.xls-subtitle.management{{height:17pt;font-size:7.5pt}}
+.xls-spacer-8{{height:8pt}}
+.xls-spacer-5{{height:5pt}}
+.xls-filter{{height:17pt;display:flex;align-items:center;color:#475569;background:#fff;font-size:7pt;padding:0 2pt}}
+.xls-table{{width:100%;border-collapse:collapse;table-layout:fixed;border-spacing:0}}
+.xls-table thead{{display:table-header-group}}
+.xls-table tr{{page-break-inside:avoid;break-inside:avoid}}
+.xls-table th,.xls-table td{{font-variant-numeric:tabular-nums;vertical-align:middle}}
+.xls-table th{{height:25pt;background:#0f172a;color:#fff;border:1px solid #e2e8f0;padding:2pt 2.5pt;font-size:7pt;font-weight:800;text-align:center;white-space:normal;line-height:1.12}}
+.branch-table th{{height:22pt;font-size:8pt}}
+.xls-table tbody tr.data-row{{height:24pt}}
+.xls-table tbody tr.data-row td{{border:1px solid #e2e8f0;padding:2.5pt 2.5pt;font-size:7.5pt;font-weight:700;background:#f8fafc;line-height:1.15;overflow-wrap:anywhere}}
+.xls-table tbody tr.data-row.even td{{background:#f1f5f9}}
+.branch-table tbody tr.data-row td{{font-size:8.5pt;font-weight:800}}
+.xls-table td.text-left{{text-align:left}}
+.xls-table td.text-center{{text-align:center}}
+.xls-table td.text-right{{text-align:right}}
+.xls-table td.wrap{{white-space:normal;overflow-wrap:anywhere}}
+.xls-table td.status-cell{{text-align:center;background:#fffbeb!important;color:#0f172a;font-weight:800}}
+.xls-table td.remarks-cell{{font-size:7pt!important;font-weight:400!important;white-space:normal;overflow-wrap:anywhere}}
+.xls-table tr.grand-total{{height:22pt}}
+.xls-table tr.grand-total td{{font-size:7pt;font-weight:800}}
+.xls-table td.grand-label{{background:#1e293b;color:#fff;text-align:right;border:1px solid #e2e8f0;padding:2.5pt}}
+.xls-table td.grand-qty{{background:#1e293b;color:#fff;text-align:center;border:1px solid #e2e8f0;padding:2.5pt}}
+.xls-table td.grand-amount{{background:#1e293b;color:#fff;text-align:right;border:1px solid #e2e8f0;padding:2.5pt}}
+.xls-table td.grand-blank{{background:#fff;border:0;padding:0}}
+.branch-meta{{width:100%;border-collapse:collapse;table-layout:fixed;border-spacing:0}}
+.branch-meta td{{height:18pt;border:1px solid #e2e8f0;background:#1e293b;padding:2pt 3pt;vertical-align:middle}}
+.branch-meta .meta-label{{color:#fbbf24;font-size:8pt;font-weight:800;text-transform:uppercase}}
+.branch-meta .meta-value{{color:#fff;font-size:8.5pt;font-weight:800}}
+@media screen{{
+ body{{padding:18px;background:#e2e8f0}}
+ .print-sheet{{background:#fff;max-width:{safe_preview_width};margin:0 auto 18px;box-shadow:0 12px 30px rgba(15,23,42,.14)}}
+}}
+@media print{{body{{background:#fff}}.print-sheet{{box-shadow:none;margin:0}}}}
+</style></head><body>{body}<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),160));</script></body></html>'''
+
+
+def _management_print_html(data: dict) -> str:
+    selected = data.get("selected") or {}
+    title = html_escape(str(data.get("title") or "Management Order Plan"))
+    grouped = {}
+    for row in data.get("rows", []):
+        brand = str(row.get("brand") or "Unspecified").strip() or "Unspecified"
+        grouped.setdefault(brand, []).append(row)
+
+    # Same relative widths as build_management_order_xlsx().
+    excel_widths = [10.0, 13.0, 18.0, 15.0, 9.0, 8.0, 13.0, 18.0, 12.0, 10.0, 19.0, 30.0]
+    width_total = sum(excel_widths)
+    widths = [f"{(w / width_total) * 100:.4f}%" for w in excel_widths]
+    headers = ["LINE NO.", "BRAND", "MODEL", "UNIT COST", "INV.", "DoI", "STOCK STATUS", "PO BAL.", "ORDER QTY", "NEW DoI", "TOTAL AMOUNT", "REMARKS"]
+    colgroup = '<colgroup>' + ''.join(f'<col style="width:{w}">' for w in widths) + '</colgroup>'
+
+    sections = []
+    for brand in sorted(grouped, key=str.lower):
+        rows = grouped[brand]
+        filters = [f"Brand: {brand}"]
+        if selected.get("class") and selected.get("class") != "All Classes":
+            filters.append(f"Class: {selected.get('class')}")
+        if selected.get("status") and selected.get("status") != "All Statuses":
+            filters.append(f"Status: {selected.get('status')}")
+        if selected.get("model") and selected.get("model") != "All Models":
+            filters.append(f"Model: {selected.get('model')}")
+
+        body_rows = []
+        qty_total = 0.0
+        amount_total = 0.0
+        for idx, row in enumerate(rows, 1):
+            qty = float(row.get("allocation", 0) or 0)
+            amount = float(row.get("total_amount", 0) or 0)
+            qty_total += qty
+            amount_total += amount
+            values = [
+                _whole_print(idx),
+                html_escape(str(row.get("brand") or "")),
+                html_escape(str(row.get("model") or "")),
+                _money_print(row.get("unit_cost", 0)),
+                _whole_print(row.get("inventory", 0)),
+                _doi_print(row.get("doi", 0)),
+                html_escape(str(row.get("stock_status") or "")),
+                _whole_print(row.get("po_balance", 0)),
+                _whole_print(qty),
+                _doi_print(row.get("new_doi", 0)),
+                _money_print(amount),
+                html_escape(str(row.get("remarks") or "")),
+            ]
+            aligns = [
+                "text-center", "text-left", "text-left", "text-right",
+                "text-center", "text-center", "status-cell", "text-center",
+                "text-center", "text-center", "text-right", "text-left remarks-cell",
+            ]
+            parity = " even" if idx % 2 == 0 else ""
+            body_rows.append(
+                f'<tr class="data-row{parity}">'
+                + ''.join(f'<td class="{align}">{value}</td>' for align, value in zip(aligns, values))
+                + '</tr>'
+            )
+
+        total_row = (
+            f'<tr class="grand-total">'
+            f'<td colspan="8" class="grand-label">GRAND TOTAL</td>'
+            f'<td class="grand-qty">{_whole_print(qty_total)}</td>'
+            f'<td class="grand-blank"></td>'
+            f'<td class="grand-amount">{_money_print(amount_total)}</td>'
+            f'<td class="grand-blank"></td>'
+            f'</tr>'
+        )
+        filter_line = html_escape(" | ".join(filters))
+        header_html = ''.join(f'<th>{html_escape(h)}</th>' for h in headers)
+        sections.append(
+            '<section class="print-sheet">'
+            '<div class="xls-row xls-title management">MANAGEMENT ORDER PLAN</div>'
+            f'<div class="xls-row xls-subtitle management">{title}</div>'
+            '<div class="xls-spacer-5"></div>'
+            f'<div class="xls-filter">{filter_line}</div>'
+            '<div class="xls-spacer-5"></div>'
+            f'<table class="xls-table management-table">{colgroup}<thead><tr>{header_html}</tr></thead>'
+            f'<tbody>{"".join(body_rows)}{total_row}</tbody></table>'
+            '</section>'
+        )
+
+    # Management workbook is configured as Letter portrait + fit-to-width.
+    return _direct_print_document(
+        "Management Order Plan",
+        ''.join(sections),
+        orientation="portrait",
+        page_margin=".08in",
+        preview_width="8.5in",
+    )
+
+
+@app.post("/admin/export/management")
+@admin_required
+def admin_export_management():
+    try:
+        data = _prepare_management_output(_json_payload())
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     xlsx = build_management_order_xlsx(data)
     stamp = _now_local().strftime("%Y%m%d_%H%M%S")
     filename = f"Management_Order_Plan_{stamp}.xlsx"
     return _send_bytes(xlsx, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.post("/admin/print/management")
+@admin_required
+def admin_print_management():
+    try:
+        data = _prepare_management_output(_json_payload())
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    response = app.response_class(_management_print_html(data), mimetype="text/html")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/api/delivery")
@@ -1040,14 +1244,11 @@ def admin_export_pptx():
     return _send_bytes(ppt, filename, "application/vnd.openxmlformats-officedocument.presentationml.presentation")
 
 
-@app.post("/admin/export/request")
-@admin_required
-def admin_export_request():
-    payload = _json_payload()
+def _prepare_branch_request_output(payload: dict) -> tuple[str, str, list]:
     branch = str(payload.get("branch", "")).strip()
     items = payload.get("items") or []
     if not branch or not items:
-        return jsonify({"error": "Branch and at least one requested item are required."}), 400
+        raise ValueError("Select a Branch and include at least one requested item.")
     verified = []
     area = ""
     for item in items:
@@ -1065,12 +1266,106 @@ def admin_export_request():
         area = base["area"]
         verified.append({**base, "requested_qty": qty, "remarks": str(item.get("remarks", "")), "new_doi": round(new_doi, 2) if isinstance(new_doi, float) else new_doi})
     if not verified:
-        return jsonify({"error": "No valid request lines."}), 400
+        raise ValueError("No valid request lines were found for the selected Branch.")
+    return branch, area, verified
+
+
+def _branch_request_print_html(branch: str, area: str, items: list) -> str:
+    # Direct print uses the same worksheet structure as build_branch_request_xlsx(),
+    # except the requested print-only simplifications: date only and no signature block.
+    generated = _now_local().strftime("%d %b %Y")
+    headers = ["NO.", "MODEL", "CLASS", "INVENTORY", "REQUEST QTY", "STOCK STATUS", "CURRENT DoI", "NEW DoI", "REMARKS"]
+
+    # Same relative widths as the downloadable Excel workbook.
+    excel_widths = [5.5, 20.0, 8.0, 9.0, 10.0, 13.0, 10.0, 10.0, 22.0]
+    width_total = sum(excel_widths)
+    widths = [f"{(w / width_total) * 100:.4f}%" for w in excel_widths]
+    colgroup = '<colgroup>' + ''.join(f'<col style="width:{w}">' for w in widths) + '</colgroup>'
+
+    body_rows = []
+    for idx, item in enumerate(items, 1):
+        new_doi = item.get("new_doi", "N/A")
+        values = [
+            _whole_print(idx),
+            html_escape(str(item.get("model") or "")),
+            html_escape(str(item.get("class") or "")),
+            _whole_print(item.get("inventory", 0)),
+            _whole_print(item.get("requested_qty", 0)),
+            html_escape(str(item.get("stock_status") or "")),
+            _doi_print(item.get("doi", 0)),
+            _doi_print(new_doi) if isinstance(new_doi, (int, float)) else html_escape(str(new_doi)),
+            html_escape(str(item.get("remarks") or "")),
+        ]
+        aligns = [
+            "text-right", "text-left", "text-left", "text-right", "text-right",
+            "text-left", "text-right", "text-right", "text-left wrap",
+        ]
+        parity = " even" if idx % 2 == 0 else ""
+        body_rows.append(
+            f'<tr class="data-row{parity}">'
+            + ''.join(f'<td class="{align}">{value}</td>' for align, value in zip(aligns, values))
+            + '</tr>'
+        )
+
+    # Match Excel merged-cell geometry: A:B label, C:E value, F:G label, H:I value.
+    meta = f'''<table class="branch-meta">{colgroup}<tbody>
+<tr>
+<td colspan="2" class="meta-label">REQUESTING BRANCH</td>
+<td colspan="3" class="meta-value">{html_escape(branch)}</td>
+<td colspan="2" class="meta-label">REPORT GENERATED</td>
+<td colspan="2" class="meta-value">{html_escape(generated)}</td>
+</tr>
+<tr>
+<td colspan="2" class="meta-label">AREA</td>
+<td colspan="3" class="meta-value">{html_escape(area)}</td>
+<td colspan="4" style="background:#fff;border:0"></td>
+</tr>
+</tbody></table>'''
+    header_html = ''.join(f'<th>{html_escape(h)}</th>' for h in headers)
+    section = (
+        '<section class="print-sheet">'
+        '<div class="xls-row xls-title">BRANCH REQUEST STATUS REPORT</div>'
+        '<div class="xls-row xls-subtitle">MUTI MC SCM Executive Control Tower • Branch Request Report</div>'
+        '<div class="xls-spacer-8"></div>'
+        f'{meta}'
+        '<div class="xls-spacer-8"></div>'
+        f'<table class="xls-table branch-table">{colgroup}<thead><tr>{header_html}</tr></thead>'
+        f'<tbody>{"".join(body_rows)}</tbody></table>'
+        '</section>'
+    )
+    return _direct_print_document(
+        f"Branch Request - {branch}",
+        section,
+        orientation="portrait",
+        page_margin=".25in",
+        preview_width="8.5in",
+    )
+
+
+@app.post("/admin/export/request")
+@admin_required
+def admin_export_request():
+    try:
+        branch, area, verified = _prepare_branch_request_output(_json_payload())
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     xlsx = build_branch_request_xlsx(branch, area, verified)
     stamp = _now_local().strftime("%Y%m%d_%H%M%S")
     safe_branch = "_".join(branch.split())
     filename = f"Branch_Request_{safe_branch}_{stamp}.xlsx"
     return _send_bytes(xlsx, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.post("/admin/print/request")
+@admin_required
+def admin_print_request():
+    try:
+        branch, area, verified = _prepare_branch_request_output(_json_payload())
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    response = app.response_class(_branch_request_print_html(branch, area, verified), mimetype="text/html")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.post("/admin/delivery/import")

@@ -557,7 +557,7 @@ def build_aging_report_xlsx(
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 <dc:title>Motorcycle Aging Intelligence</dc:title><dc:creator>SCM IDP Control Tower</dc:creator><dc:subject>Aging management export</dc:subject><dcterms:created xsi:type="dcterms:W3CDTF">{generated_utc}</dcterms:created></cp:coreProperties>'''
     app = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>SCM IDP Dashboard</Application><AppVersion>2.47.6</AppVersion></Properties>'''
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>SCM IDP Dashboard</Application><AppVersion>2.48.2</AppVersion></Properties>'''
 
     out = BytesIO()
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:

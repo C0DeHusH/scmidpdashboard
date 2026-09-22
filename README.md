@@ -1,6 +1,15 @@
-# SCM Inventory & Distribution Planning Control Tower — v2.47.6
+# SCM Inventory & Distribution Planning Control Tower — v2.48.2
 
 
+
+
+## v2.48.2 Print Format Parity
+
+Branch Request and Management Order Plan direct-print reports now mirror the Excel report geometry and styling. Branch Request print uses date-only report metadata and excludes the removed signature block. Management print uses the same Brand grouping, columns, totals, and portrait fit-to-width layout as the Excel workbook.
+
+## v2.48.2 Direct Print + Branch Output Selection
+
+Branch Request Simulator and Management Order Plan now provide both **Download Excel** and **Direct Print**. Direct Print is generated from the same server-validated business rows used by the Excel exporter, but returns a print-ready HTML document instead of creating or downloading a workbook. Branch Request queues can contain multiple branches; the user selects the exact Output Branch before Download or Print. The printed Branch Request intentionally omits Prepared / Reviewed By, Approved By, signature Date, storage notices, and request-line counters.
 
 ## v2.47.6 Component-Level Filter Refresh
 

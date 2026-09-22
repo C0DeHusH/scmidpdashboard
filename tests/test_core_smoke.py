@@ -522,6 +522,51 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         # Page navigation remains reserved for explicit actions such as logout/clear-data, not filtering.
         self.assertNotIn("location.reload()", js[js.index("$('#periodFilter').onchange"):js.index("const clearDataModal")])
 
+    def test_direct_print_parity_and_multi_branch_selector(self):
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        js = (ROOT / "static" / "js" / "dashboard-app.js").read_text(encoding="utf-8")
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        for element_id in ["printManagementBtn", "requestOutputBranch", "printRequest", "downloadRequest"]:
+            self.assertEqual(template.count(f'id="{element_id}"'), 1, element_id)
+        self.assertIn("Multiple branches are in the request queue", template)
+        self.assertIn("state.requests.filter(x=>x.branch===branch)", js)
+        self.assertIn("/admin/print/request", js)
+        self.assertIn("/admin/print/management", js)
+        self.assertIn("managementOutputPayload()", js)
+        self.assertIn('@app.post("/admin/print/request")', app_source)
+        self.assertIn('@app.post("/admin/print/management")', app_source)
+        self.assertIn("_prepare_management_output", app_source)
+        self.assertIn("_prepare_branch_request_output", app_source)
+
+        branch_print = app_source[app_source.index("def _branch_request_print_html"):app_source.index('@app.post("/admin/export/request")')]
+        for unwanted in ["Prepared / Reviewed By", "Approved By", "Direct Print", "request line(s)"]:
+            self.assertNotIn(unwanted, branch_print)
+
+    def test_direct_print_html_uses_same_business_columns_as_excel(self):
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        branch_section = app_source[app_source.index("def _branch_request_print_html"):app_source.index('@app.post("/admin/export/request")')]
+        management_section = app_source[app_source.index("def _management_print_html"):app_source.index('@app.post("/admin/export/management")')]
+        for heading in ["BRANCH REQUEST STATUS REPORT", "REQUEST QTY", "CURRENT DoI", "NEW DoI", "REMARKS"]:
+            self.assertIn(heading, branch_section)
+        for unwanted in ["Prepared / Reviewed By", "Approved By", "Direct Print", "request line(s)"]:
+            self.assertNotIn(unwanted, branch_section)
+        for heading in ["MANAGEMENT ORDER PLAN", "UNIT COST", "ORDER QTY", "TOTAL AMOUNT", "GRAND TOTAL"]:
+            self.assertIn(heading, management_section)
+        self.assertIn("window.print()", app_source)
+
+
+    def test_direct_print_matches_excel_page_geometry_and_date_only(self):
+        app_source = (ROOT / "app.py").read_text(encoding="utf-8")
+        branch_section = app_source[app_source.index("def _branch_request_print_html"):app_source.index('@app.post("/admin/export/request")')]
+        management_section = app_source[app_source.index("def _management_print_html"):app_source.index('@app.post("/admin/export/management")')]
+        self.assertIn('strftime("%d %b %Y")', branch_section)
+        self.assertNotIn('%I:%M %p', branch_section)
+        self.assertIn('excel_widths = [5.5, 20.0, 8.0, 9.0, 10.0, 13.0, 10.0, 10.0, 22.0]', branch_section)
+        self.assertIn('excel_widths = [10.0, 13.0, 18.0, 15.0, 9.0, 8.0, 13.0, 18.0, 12.0, 10.0, 19.0, 30.0]', management_section)
+        self.assertIn('orientation="portrait"', management_section)
+        self.assertIn('page_margin=".08in"', management_section)
+        self.assertIn('grand-blank', management_section)
+
     def test_theme_contrast_guard_is_loaded_for_main_aging_and_login(self):
         guard = (ROOT / "static" / "css" / "v2471-theme-contrast.css").read_text(encoding="utf-8")
         for rel in ["templates/index.html", "templates/aging/base.html", "templates/login.html"]:
