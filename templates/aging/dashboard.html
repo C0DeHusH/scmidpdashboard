@@ -17,8 +17,6 @@
     <div class="flex flex-wrap items-center gap-2">
       <span id="filterStatus" class="filter-status"><span class="status-dot"></span>Auto update on</span>
       <button id="agingResetFilters" type="button" class="btn-secondary">Reset Filters</button>
-      <a id="agingExportXlsx" class="btn-primary aging-export-primary" data-aging-export-endpoint="{{ url_for('aging.export_xlsx') }}" data-aging-export-mode="aging" href="{{ url_for('aging.export_xlsx', **export_args) }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>Export Aging Excel</a>
-      <a id="agingExportCsv" class="btn-secondary" data-aging-export-endpoint="{{ url_for('aging.export_csv') }}" data-aging-export-mode="aging" href="{{ url_for('aging.export_csv', **export_args) }}">CSV Data</a>
     </div>
   </div>
   <div class="filter-grid filter-grid-seven">
@@ -30,8 +28,31 @@
     <label class="field filter-search"><span>Model / Standard Description</span><div class="input-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4" stroke-linecap="round"/></svg><input class="auto-filter-text" name="std" value="{{ filters.std }}" placeholder="Search model..."></div></label>
     <label class="field filter-search"><span>Engine / Chassis / Barcode</span><div class="input-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4" stroke-linecap="round"/></svg><input class="auto-filter-text" name="q" value="{{ filters.q }}" placeholder="Search unit..."></div></label>
   </div>
-  <div class="filter-foot">The unit table is simplified to show the exact <b>Age Days</b>, while the charts summarize aging automatically for management review. <b>Excel Export:</b> captures the live Area / Branch / Model scope and includes Executive Summary + Per Area + Model Intelligence + full filtered Unit Detail + Data Dictionary.</div>
+  <div class="filter-foot">The unit table is simplified to show the exact <b>Age Days</b>, while the charts summarize aging automatically for management review. Area / Branch / Brand / Model / exact-unit filters are applied automatically to the dashboard and to the Data Export below.</div>
 </form>
+
+<section class="aging-export-center mt-3" aria-label="Aging data export">
+  <div class="aging-export-center-copy">
+    <div class="eyebrow">Data Export</div>
+    <div class="aging-export-center-title">Filtered Aging Unit Details</div>
+    <div class="aging-export-center-note">Downloads the complete filtered dataset—not only the 250 rows visible in Unit-Level Traceability. Excel keeps the same detailed Aging-report structure used by the imported file.</div>
+  </div>
+  <div class="aging-export-center-meta">
+    <span id="agingExportRowCount" class="data-chip"><strong>{{ row_count|qty }}</strong>&nbsp; filtered rows</span>
+    <div class="aging-export-center-actions">
+      <a id="agingExportXlsx" class="export-format-btn export-format-excel" data-aging-export-endpoint="{{ url_for('aging.export_xlsx') }}" data-aging-export-mode="aging" href="{{ url_for('aging.export_xlsx', **export_args) }}">
+        <span class="export-format-icon" aria-hidden="true">XLSX</span>
+        <span><b>Excel</b><small>Aging unit details</small></span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>
+      </a>
+      <a id="agingExportCsv" class="export-format-btn export-format-csv" data-aging-export-endpoint="{{ url_for('aging.export_csv') }}" data-aging-export-mode="aging" href="{{ url_for('aging.export_csv', **export_args) }}">
+        <span class="export-format-icon" aria-hidden="true">CSV</span>
+        <span><b>CSV</b><small>Raw unit details</small></span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>
+      </a>
+    </div>
+  </div>
+</section>
 
 <div id="agingResultsRegion" class="partial-refresh-region" aria-live="polite">
 {% include 'aging/_results_region.html' %}

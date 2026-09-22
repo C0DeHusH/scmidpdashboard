@@ -1,10 +1,11 @@
-# SCM Inventory & Distribution Planning Control Tower — v2.48.3
+# SCM Inventory & Distribution Planning Control Tower — v2.48.4
 
 
 
 
-## v2.48.3 Filtered Aging Export
+## v2.48.4 Aging Export Source-Format Fix
 
+- Aging export controls are centralized in a dedicated Data Export strip; Live Filters and Unit-Level Traceability no longer contain duplicate Excel/CSV buttons.
 - Unit Trace Excel export now captures the live Area, Branch, Model / Standard Description, unit aging band, unit search and sort values at click time.
 - Filtered Excel exports open directly on the Unit Detail sheet and include Description, Color, Barcode and an Aging Action field.
 - The full Export Aging Excel workbook keeps all management sheets while exporting the complete filtered Unit Detail dataset (not only the 250 visible rows).

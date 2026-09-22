@@ -1,0 +1,39 @@
+
+/* v2.48.5 — centralized Aging data export. Export controls deliberately live
+   outside Live Filters and Unit-Level Traceability to keep both work areas clean. */
+.aging-export-center{
+  display:flex;align-items:center;justify-content:space-between;gap:18px;
+  padding:14px 16px;border:1px solid var(--border,#1d3553);border-radius:16px;
+  background:linear-gradient(135deg,rgba(12,29,50,.92),rgba(5,16,31,.82));
+  box-shadow:0 10px 28px rgba(2,6,23,.16)
+}
+.aging-export-center-copy{min-width:0;max-width:760px}
+.aging-export-center-title{margin-top:2px;color:var(--text,#f3f7fb);font-size:14px;font-weight:850;letter-spacing:-.01em}
+.aging-export-center-note{margin-top:3px;color:var(--muted,#a9bbcf);font-size:10.5px;line-height:1.55}
+.aging-export-center-meta{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.aging-export-center-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.export-format-btn{
+  min-width:180px;min-height:50px;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:9px;
+  padding:8px 10px;border:1px solid var(--border,#1d3553);border-radius:12px;
+  background:rgba(255,255,255,.025);color:var(--text,#f3f7fb);text-decoration:none!important;
+  transition:transform .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease
+}
+.export-format-btn:hover{transform:translateY(-1px);border-color:rgba(96,165,250,.50);background:rgba(59,130,246,.07);box-shadow:0 8px 20px rgba(2,6,23,.18)}
+.export-format-btn:focus-visible{outline:2px solid #60a5fa;outline-offset:2px}
+.export-format-icon{
+  display:inline-flex;align-items:center;justify-content:center;min-width:42px;height:28px;padding:0 7px;
+  border-radius:8px;font-size:8px;font-weight:950;letter-spacing:.08em;border:1px solid rgba(255,255,255,.10)
+}
+.export-format-excel .export-format-icon{background:rgba(16,185,129,.10);color:#6ee7b7;border-color:rgba(52,211,153,.18)}
+.export-format-csv .export-format-icon{background:rgba(59,130,246,.10);color:#93c5fd;border-color:rgba(96,165,250,.18)}
+.export-format-btn b{display:block;font-size:11px;line-height:1.2;color:var(--text,#f3f7fb)}
+.export-format-btn small{display:block;margin-top:2px;font-size:8.5px;font-weight:650;color:var(--muted2,#7690ab)}
+.export-format-btn>svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;color:var(--muted,#a9bbcf)}
+html[data-theme="light"] body.aging-module .aging-export-center{background:linear-gradient(135deg,#f8fbff,#fff);border-color:#d5e4f2;box-shadow:0 8px 22px rgba(48,85,122,.08)}
+html[data-theme="light"] body.aging-module .export-format-btn{background:#fff;border-color:#d5e4f2;color:#173a5e}
+html[data-theme="light"] body.aging-module .export-format-btn:hover{background:#f7fbff;border-color:#93c5fd}
+html[data-theme="light"] body.aging-module .export-format-excel .export-format-icon{background:#ecfdf5;color:#047857;border-color:#a7f3d0}
+html[data-theme="light"] body.aging-module .export-format-csv .export-format-icon{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}
+html[data-theme="light"] body.aging-module .export-format-btn b{color:#173a5e}
+@media(max-width:900px){.aging-export-center{align-items:flex-start;flex-direction:column}.aging-export-center-meta{width:100%;justify-content:space-between}}
+@media(max-width:560px){.aging-export-center-actions,.export-format-btn{width:100%}.aging-export-center-meta{align-items:stretch;flex-direction:column}.export-format-btn{min-width:0}}
