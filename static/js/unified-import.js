@@ -52,7 +52,7 @@
     const mb=(f.size/1024/1024).toFixed(1);fileName.textContent=f.name;fileMeta.textContent=`${mb} MB · Ready to refresh all analytical modules`;
     setProgress(4,'Workbook selected','Click Import All Data to validate and refresh SCM + Aging together.');
   };
-  document.querySelectorAll('[data-open-unified-import]').forEach(el=>el.addEventListener('click',e=>{e.preventDefault();open()}));
+  document.addEventListener('click',e=>{const el=e.target.closest?.('[data-open-unified-import]');if(!el)return;e.preventDefault();open()});
   document.querySelectorAll('[data-close-unified-import]').forEach(el=>el.addEventListener('click',close));
   input.addEventListener('change',()=>setFile(input.files?.[0]));
   drop.addEventListener('keydown',e=>{if(!busy&&(e.key==='Enter'||e.key===' ')){e.preventDefault();input.click()}});

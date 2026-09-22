@@ -24,8 +24,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/v2471-theme-contrast.css') }}?v=2471">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/v2474-theme-readability.css') }}?v=2474">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/v2475-visibility-fix.css') }}?v=2475">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/v2476-partial-filter.css') }}?v=2476">
 </head>
-<body class="aging-module sidebar-expanded min-h-screen font-sans antialiased">
+<body class="aging-module sidebar-expanded min-h-screen font-sans antialiased" data-role="{{ role|title }}">
 <div id="sidebarBackdrop"></div>
 <aside id="scmSidebar" aria-label="SCM navigation">
   <div id="sidebarInner">
@@ -102,7 +103,7 @@
         <h1 class="workspace-title">{% block page_title %}Motorcycle Aging{% endblock %}</h1>
         <p class="workspace-subtitle">{% block page_subtitle %}Unit-level aging exposure, capital risk, and branch/model priorities inside the same SCM decision workspace.{% endblock %}</p>
       </div>
-      <div class="workspace-hero-meta">
+      <div id="workspaceHeroMeta" class="workspace-hero-meta">
         <span class="workspace-chip"><span class="workspace-chip-dot"></span>Local Control Tower</span>
         {% block hero_meta %}<span class="workspace-chip">Module · <strong>Aging</strong></span>{% endblock %}
         <span class="workspace-chip">Access · <strong>{{ role|title }}</strong></span>
@@ -145,10 +146,10 @@
 </div>
 
 <div id="agingToast" role="status" aria-live="polite" aria-atomic="true" class="fixed bottom-4 right-4 z-[120] hidden max-w-sm rounded-xl border px-4 py-3 text-sm shadow-2xl"></div>
-<script src="{{ url_for('static', filename='js/aging-shell.js') }}?v=2471"></script>
+<script src="{{ url_for('static', filename='js/aging-shell.js') }}?v=2476"></script>
 <script src="{{ url_for('static', filename='js/sidebar-data-ops.js') }}?v=2471"></script>
-<script src="{{ url_for('static', filename='js/unified-import.js') }}?v=2471"></script>
-<script src="{{ url_for('static', filename='aging/js/app.js') }}?v=2475"></script>
+<script src="{{ url_for('static', filename='js/unified-import.js') }}?v=2476"></script>
+<script src="{{ url_for('static', filename='aging/js/app.js') }}?v=2476"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

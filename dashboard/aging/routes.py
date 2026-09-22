@@ -6,7 +6,7 @@ import os
 from datetime import date, datetime
 from pathlib import Path
 
-from flask import Blueprint, Response, flash, redirect, render_template, request, send_file, session, url_for
+from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 
 from .analytics import filtered_dataset, summarize, normalize_filters
 from .db import connect, init_db
@@ -171,8 +171,8 @@ def apply_unit_filters(rows: list[dict], unit_filters: dict[str, str]) -> list[d
     return filtered
 
 
-@aging_bp.get("/")
-def dashboard():
+def _resolve_view_state() -> dict:
+    """Resolve and normalize the current Aging filter scope once per request."""
     filters = get_filters()
     as_of_str = request.args.get("as_of") or current_as_of()
     as_of = parse_as_of(as_of_str)
@@ -181,30 +181,108 @@ def dashboard():
         basis = "branch"
     filters, options, filter_warnings = normalize_filters(filters)
     rows = filtered_dataset(filters, as_of, basis)
-    summary = summarize(rows)
+    return {
+        "filters": filters,
+        "options": options,
+        "filter_warnings": filter_warnings,
+        "as_of": as_of.isoformat(),
+        "as_of_date": as_of,
+        "basis": basis,
+        "base_rows": rows,
+        "row_count": len(rows),
+    }
+
+
+def _unit_view_context(view: dict) -> dict:
+    """Build only the Unit Trace state so unit-level filtering stays lightweight."""
     unit_filters = get_unit_filters()
+    rows = view["base_rows"]
     band_counts = unit_band_counts(rows, unit_filters.get("q", ""))
     unit_rows = apply_unit_filters(rows, unit_filters)
-    display_rows = unit_rows[:250]
+    export_args = _export_args(view["filters"], view["as_of"], view["basis"], unit_filters)
+    return {
+        "rows": unit_rows[:250],
+        "unit_filters": unit_filters,
+        "unit_row_count": len(unit_rows),
+        "unit_band_counts": band_counts,
+        "export_args": export_args,
+    }
+
+
+def _aging_chart_data(summary: dict) -> dict:
+    return {
+        "buckets": summary.get("bucket_labels", []),
+        "bucketValues": summary.get("bucket_values", []),
+        "areas": summary.get("area_labels", []),
+        "areaValues": summary.get("area_values", []),
+        "areaPctValues": summary.get("area_pct_values", []),
+        "brands": summary.get("brand_labels", []),
+        "brandValues": summary.get("brand_values", []),
+        "models": summary.get("aged_model_labels", []),
+        "modelValues": summary.get("aged_model_values", []),
+    }
+
+
+def _dashboard_context() -> dict:
+    view = _resolve_view_state()
+    summary = summarize(view["base_rows"])
+    unit = _unit_view_context(view)
     with connect() as conn:
         latest_import = conn.execute("SELECT * FROM imports ORDER BY id DESC LIMIT 1").fetchone()
-    return render_template(
-        "aging/dashboard.html",
-        rows=display_rows,
-        row_count=len(rows),
-        summary=summary,
-        options=options,
-        filters=filters,
-        as_of=as_of.isoformat(),
-        basis=basis,
-        latest_import=latest_import,
-        unit_filters=unit_filters,
-        unit_row_count=len(unit_rows),
-        unit_band_counts=band_counts,
-        export_args=_export_args(filters, as_of.isoformat(), basis, unit_filters),
-        filter_warnings=filter_warnings,
-        role="admin" if _is_admin() else "guest",
-    )
+    return {
+        **view,
+        **unit,
+        "summary": summary,
+        "latest_import": latest_import,
+        "aging_chart_data": _aging_chart_data(summary),
+        "role": "admin" if _is_admin() else "guest",
+    }
+
+
+@aging_bp.get("/")
+def dashboard():
+    return render_template("aging/dashboard.html", **_dashboard_context())
+
+
+@aging_bp.get("/partial")
+def dashboard_partial():
+    """Return only the Aging regions affected by the global Aging filters.
+
+    The page shell, navigation and filter controls stay mounted in the browser.
+    This prevents full-page navigation and keeps the user's scroll/focus stable.
+    """
+    ctx = _dashboard_context()
+    return jsonify({
+        "summary_html": render_template("aging/_summary_region.html", **ctx),
+        "results_html": render_template("aging/_results_region.html", **ctx),
+        "filters": ctx["filters"],
+        "options": ctx["options"],
+        "as_of": ctx["as_of"],
+        "basis": ctx["basis"],
+        "row_count": ctx["row_count"],
+        "filter_warnings": ctx["filter_warnings"],
+        "chart_data": ctx["aging_chart_data"],
+        "export_xlsx": url_for("aging.export_xlsx", **ctx["export_args"]),
+        "export_csv": url_for("aging.export_csv", **ctx["export_args"]),
+        "view_url": url_for("aging.dashboard", **ctx["export_args"]),
+    })
+
+
+@aging_bp.get("/partial/units")
+def unit_trace_partial():
+    """Refresh only Unit-Level Traceability without recalculating/rendering all cards."""
+    view = _resolve_view_state()
+    unit = _unit_view_context(view)
+    ctx = {
+        **view,
+        **unit,
+        "role": "admin" if _is_admin() else "guest",
+    }
+    return jsonify({
+        "html": render_template("aging/_unit_trace.html", **ctx),
+        "view_url": url_for("aging.dashboard", **unit["export_args"]),
+        "unit_row_count": unit["unit_row_count"],
+    })
 
 
 @aging_bp.get("/units")

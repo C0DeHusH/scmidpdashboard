@@ -1,8 +1,47 @@
-# SCM Inventory & Distribution Planning Control Tower — v2.47.1
+# SCM Inventory & Distribution Planning Control Tower — v2.47.6
 
-## v2.47.1 Motorcycle Aging Traceability + Export
+
+
+## v2.47.6 Component-Level Filter Refresh
+
+Filtering is now a non-navigation interaction across the control tower. The main SCM dashboard already updated its Area, Branch, Status, Management, Reorder, Simulator and Delivery sections in place; v2.47.6 brings Motorcycle Aging to the same standard. Global Aging filters refresh only the affected Aging summary/cards/charts/tables, while Unit-Level Traceability refreshes only its own card and table. Requests are cancellable, stale responses cannot overwrite newer filter choices, URL state is updated with `history.replaceState`, and scroll/focus are preserved.
+
+## v2.47.5 Light-Mode Visibility + Trend Legend + Unit Filter Position
+
+- Fixed Aging KPI card values and helper text that could disappear or become too faint in Light mode.
+- Replaced the Chart.js KPI legend with a high-contrast dashboard legend that stays readable in both themes.
+- Trend Direction now uses clear directional icons: ↗ upward, ↘ downward, → flat; Actual remains a solid blue line and Trend remains dashed.
+- Unit-Level Traceability remembers the filter control's viewport position before a server-side filter refresh and restores it after the page reloads, so the user stays in the same working section instead of jumping upward.
+- No inventory, KPI, Aging, Management, Branch Request or Delivery business rules were changed.
+
+## v2.47.4 Theme Readability + Current YTD Date
+
+- Strengthens text, table, modal, control, badge, sidebar and chart contrast in both Light and Dark themes.
+- YTD charts keep prior periods as month-only labels while the newest imported point shows the actual day (for example `Sep 21`).
+- Each YTD chart now displays `Latest data · September 21, 2026` using the exact newest imported period.
+- The latest-point tooltip also shows the complete date.
+
+## v2.47.3 Aging Export Data Reliability Fix
+
+- Fixed a stale Area/Branch filter bug that could make **Area Intelligence**, **Model Intelligence**, and **Unit Detail** export with no rows even while the Aging dashboard visibly contained data.
+- Dashboard, CSV, and Excel export now use one canonical filter-normalization path.
+- Export links are generated from the **validated active filter scope**, never from raw browser query parameters.
+- If an Area changes and an old Branch no longer belongs to it, the Branch is safely reset to **All Branches** before export.
+- Invalid stale Area/Brand values are also normalized against the current Aging dataset.
+- The Excel report now records **Dashboard Rows** and any automatic **Scope Repair** in Executive Summary → Applied Filters.
+- Empty export sections now show a clear diagnostic message instead of appearing silently blank.
+
+
+## v2.47.2 Motorcycle Aging Per-Area Intelligence + Export
 
 The Motorcycle Aging workspace now uses an explicit risk-first workflow. Model-Level Intelligence defaults to **91+ Units · Highest → Lowest**, provides a visible Highest/Lowest direction control, sort-by selector, model search, quick views for Risk First / Capital Risk / Oldest First, live row ranking, exposure badges, and a compact percentage meter. Area and Branch rankings show their rank order clearly, while the unit table includes an age-band legend without adding back redundant Age Group/Age Detail columns.
+
+
+### What changed in v2.47.2
+- Added a dedicated **Area Intelligence** worksheet to the Aging Excel report.
+- Per Area reporting now includes Units, Inventory Value, Average Age, 91+ Units, 91+ %, Aged Value, 180+ Units, 366+ Units, Oldest Unit, Branch Count and Exposure level.
+- Area report is sorted Highest → Lowest by aging exposure and remains responsive to the active Aging filters.
+- Unit Detail still carries the Area on every motorcycle row for traceability.
 
 ## Runtime foundation: Universal Import + Dynamic KPI Periods
 

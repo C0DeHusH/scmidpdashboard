@@ -19,6 +19,8 @@
     toastTimer = setTimeout(() => el.classList.add('hidden'), 3500);
   }
 
+  window.showAgingToast = (message, tone = 'success') => toast(message, tone !== 'error' && tone !== false);
+
   function adminLoginUrl() {
     const next = window.location.pathname + window.location.search + window.location.hash;
     return `/login?next=${encodeURIComponent(next)}`;

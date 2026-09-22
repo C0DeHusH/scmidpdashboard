@@ -107,7 +107,7 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn("Branch Dispatch Sequence", template)
 
     def test_model_aging_summary_has_professional_sort_controls(self):
-        template = (ROOT / "templates" / "aging" / "dashboard.html").read_text(encoding="utf-8")
+        template = (ROOT / "templates" / "aging" / "_results_region.html").read_text(encoding="utf-8")
         aging_js = (ROOT / "static" / "aging" / "js" / "app.js").read_text(encoding="utf-8")
         self.assertIn('id="modelAgingSummaryTable"', template)
         self.assertEqual(template.count('class="table-sort-button'), 10)
@@ -408,7 +408,7 @@ class DashboardCoreSmokeTests(unittest.TestCase):
 
 
     def test_aging_unit_traceability_has_filters_and_full_dataset_export(self):
-        template = (ROOT / "templates" / "aging" / "dashboard.html").read_text(encoding="utf-8")
+        template = (ROOT / "templates" / "aging" / "_unit_trace.html").read_text(encoding="utf-8")
         routes = (ROOT / "dashboard" / "aging" / "routes.py").read_text(encoding="utf-8")
         aging_js = (ROOT / "static" / "aging" / "js" / "app.js").read_text(encoding="utf-8")
         for element_id in ["unitTrace", "unitTraceForm", "unitTraceSearch", "unitAgeFilter", "unitSortFilter"]:
@@ -417,7 +417,8 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn('Highest Value → Lowest', template)
         self.assertIn('@aging_bp.get("/export.xlsx")', routes)
         self.assertIn('apply_unit_filters(rows, unit_filters)', routes)
-        self.assertIn("unitForm.requestSubmit()", aging_js)
+        self.assertIn("/aging/partial/units", aging_js)
+        self.assertNotIn("requestSubmit()", aging_js)
 
     def test_aging_export_builds_professional_multisheet_workbook(self):
         summary = {
@@ -479,14 +480,47 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn("legend:{display:false}", js)
         self.assertIn("trend:'#0369a1'", js)
 
-    def test_aging_unit_filter_preserves_viewport_across_reload(self):
+    def test_aging_filters_use_component_refresh_without_page_navigation(self):
         aging_js = (ROOT / "static" / "aging" / "js" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("scm-aging-unit-view-v1", aging_js)
-        self.assertIn("rememberUnitViewport()", aging_js)
-        self.assertIn("restoreUnitViewport", aging_js)
-        self.assertIn("viewportTop:unitForm.getBoundingClientRect().top", aging_js)
-        self.assertIn("window.scrollBy(0,delta)", aging_js)
+        routes = (ROOT / "dashboard" / "aging" / "routes.py").read_text(encoding="utf-8")
+        template = (ROOT / "templates" / "aging" / "dashboard.html").read_text(encoding="utf-8")
+        self.assertIn('@aging_bp.get("/partial")', routes)
+        self.assertIn('@aging_bp.get("/partial/units")', routes)
+        self.assertIn('id="agingSummaryRegion"', template)
+        self.assertIn('id="agingResultsRegion"', template)
+        self.assertIn("/aging/partial", aging_js)
+        self.assertIn("/aging/partial/units", aging_js)
+        self.assertIn("summaryRegion.innerHTML=data.summary_html", aging_js)
+        self.assertIn("resultsRegion.innerHTML=data.results_html", aging_js)
+        self.assertIn("section.innerHTML=next.innerHTML", aging_js)
+        self.assertIn("history.replaceState", aging_js)
+        self.assertIn("window.scrollBy({top:delta,left:0,behavior:'auto'})", aging_js)
         self.assertIn("focus({preventScroll:true})", aging_js)
+        self.assertNotIn("requestSubmit()", aging_js)
+
+    def test_filter_refresh_loading_guard_and_dynamic_rebinding(self):
+        css = (ROOT / "static" / "css" / "v2476-partial-filter.css").read_text(encoding="utf-8")
+        base = (ROOT / "templates" / "aging" / "base.html").read_text(encoding="utf-8")
+        aging_js = (ROOT / "static" / "aging" / "js" / "app.js").read_text(encoding="utf-8")
+        unified_js = (ROOT / "static" / "js" / "unified-import.js").read_text(encoding="utf-8")
+        self.assertIn("v2476-partial-filter.css", base)
+        self.assertIn("is-partial-refreshing", css)
+        self.assertIn("AbortController", aging_js)
+        self.assertIn("initAgingUnitFilters", aging_js)
+        self.assertIn("initModelSummarySorting", aging_js)
+        self.assertIn("data-open-unified-import", unified_js)
+        self.assertIn("closest?.('[data-open-unified-import]')", unified_js)
+
+
+    def test_main_dashboard_filters_are_component_scoped(self):
+        js = (ROOT / "static" / "js" / "dashboard-app.js").read_text(encoding="utf-8")
+        self.assertIn("$('#areaFilter').onchange=async e=>{try{const d=await fetchJson('/api/area", js)
+        self.assertIn("$('#branchFilter').onchange=async e=>{try{const d=await fetchJson('/api/branch", js)
+        self.assertIn(".forEach(sel=>$(sel).onchange=loadStatusSummary)", js)
+        self.assertIn(".forEach(sel=>$(sel).onchange=loadManagement)", js)
+        self.assertIn("$('#deliveryDayFilter').onchange=async e=>await loadDelivery", js)
+        # Page navigation remains reserved for explicit actions such as logout/clear-data, not filtering.
+        self.assertNotIn("location.reload()", js[js.index("$('#periodFilter').onchange"):js.index("const clearDataModal")])
 
     def test_theme_contrast_guard_is_loaded_for_main_aging_and_login(self):
         guard = (ROOT / "static" / "css" / "v2471-theme-contrast.css").read_text(encoding="utf-8")

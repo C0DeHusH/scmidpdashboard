@@ -1,0 +1,89 @@
+<section id="unitTrace" class="glass table-card mt-6 unit-trace-card">
+  <div class="table-card-head">
+    <div>
+      <div class="eyebrow">Unit-Level Traceability</div>
+      <h2>Unit Trace &amp; Aging Action List</h2>
+      <p>Find an exact motorcycle, isolate an aging band, and sort the operational list without changing the Executive summary above.</p>
+    </div>
+    <div class="table-head-right">
+      <div class="aging-band-legend compact"><span class="aging-band healthy"><i></i>≤90</span><span class="aging-band action"><i></i>91–180</span><span class="aging-band high"><i></i>181–365</span><span class="aging-band critical"><i></i>366+</span></div>
+      <button type="button" class="btn-secondary" data-open-column-guide>Column Guide</button>
+      <span class="data-chip">{{ unit_row_count|qty }} matching rows</span>
+    </div>
+  </div>
+
+  <form id="unitTraceForm" method="get" action="{{ url_for('aging.dashboard') }}#unitTrace" class="unit-trace-controls" data-unit-filter>
+    <input type="hidden" name="as_of" value="{{ as_of }}">
+    <input type="hidden" name="basis" value="{{ basis }}">
+    <input type="hidden" name="area" value="{{ filters.area }}">
+    <input type="hidden" name="branch" value="{{ filters.branch }}">
+    <input type="hidden" name="brand" value="{{ filters.brand }}">
+    <input type="hidden" name="std" value="{{ filters.std }}">
+    <input type="hidden" name="q" value="{{ filters.q }}">
+
+    <label class="unit-trace-field">
+      <span>Find exact unit</span>
+      <div class="unit-trace-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4" stroke-linecap="round"/></svg>
+        <input id="unitTraceSearch" name="unit_q" value="{{ unit_filters.q }}" autocomplete="off" placeholder="Engine, chassis, model, branch, location…">
+      </div>
+    </label>
+    <label class="unit-trace-field">
+      <span>Aging band</span>
+      <select id="unitAgeFilter" name="unit_age">
+        <option value="all" {% if unit_filters.age=='all' %}selected{% endif %}>All Ages</option>
+        <option value="healthy" {% if unit_filters.age=='healthy' %}selected{% endif %}>≤90 Days · Healthy</option>
+        <option value="action" {% if unit_filters.age=='action' %}selected{% endif %}>91–180 Days · Action</option>
+        <option value="high" {% if unit_filters.age=='high' %}selected{% endif %}>181–365 Days · High</option>
+        <option value="critical" {% if unit_filters.age=='critical' %}selected{% endif %}>366+ Days · Critical</option>
+      </select>
+    </label>
+    <label class="unit-trace-field">
+      <span>Sort operational list</span>
+      <select id="unitSortFilter" name="unit_sort">
+        <option value="oldest" {% if unit_filters.sort=='oldest' %}selected{% endif %}>Oldest → Newest</option>
+        <option value="newest" {% if unit_filters.sort=='newest' %}selected{% endif %}>Newest → Oldest</option>
+        <option value="value_desc" {% if unit_filters.sort=='value_desc' %}selected{% endif %}>Highest Value → Lowest</option>
+        <option value="value_asc" {% if unit_filters.sort=='value_asc' %}selected{% endif %}>Lowest Value → Highest</option>
+        <option value="branch" {% if unit_filters.sort=='branch' %}selected{% endif %}>Branch A → Z</option>
+        <option value="model" {% if unit_filters.sort=='model' %}selected{% endif %}>Model A → Z</option>
+      </select>
+    </label>
+    <div class="unit-trace-actions">
+      <span>Actions</span>
+      <div>
+        <a class="btn-secondary unit-filter-reset" href="{{ url_for('aging.dashboard', as_of=as_of, basis=basis, area=filters.area, branch=filters.branch, brand=filters.brand, std=filters.std, q=filters.q) }}#unitTrace">Reset Unit View</a>
+        <a class="btn-primary aging-export-primary" href="{{ url_for('aging.export_xlsx', **export_args) }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>Export Excel</a>
+      </div>
+    </div>
+  </form>
+
+  <div class="unit-trace-status">
+    <div><span class="status-dot"></span>Showing <strong>{{ 250 if unit_row_count > 250 else unit_row_count }}</strong> of <strong>{{ unit_row_count|qty }}</strong> matching units. Filters apply to the complete dataset, not only the visible 250 rows.</div>
+    <div class="unit-band-chips" aria-label="Quick aging band filters">
+      <button type="button" class="unit-band-chip {% if unit_filters.age=='all' %}active{% endif %}" data-unit-band="all">All <b>{{ unit_band_counts.all|qty }}</b></button>
+      <button type="button" class="unit-band-chip {% if unit_filters.age=='healthy' %}active{% endif %}" data-unit-band="healthy">≤90 <b>{{ unit_band_counts.healthy|qty }}</b></button>
+      <button type="button" class="unit-band-chip {% if unit_filters.age=='action' %}active{% endif %}" data-unit-band="action">91–180 <b>{{ unit_band_counts.action|qty }}</b></button>
+      <button type="button" class="unit-band-chip {% if unit_filters.age=='high' %}active{% endif %}" data-unit-band="high">181–365 <b>{{ unit_band_counts.high|qty }}</b></button>
+      <button type="button" class="unit-band-chip {% if unit_filters.age=='critical' %}active{% endif %}" data-unit-band="critical">366+ <b>{{ unit_band_counts.critical|qty }}</b></button>
+    </div>
+  </div>
+
+  <div class="overflow-x-auto unit-table-scroll">
+    <table class="data-table unit-table min-w-[1500px] w-full text-left text-xs">
+      <thead><tr><th>Branch</th><th>Area</th><th>Standard Description</th><th>Brand</th><th>Engine No.</th><th>Chassis</th><th>Created On</th><th>Incoming Date</th><th class="text-right">Age Days</th><th class="text-right">Qty</th><th class="text-right">Value</th><th>Location</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><div class="font-semibold text-slate-100">{{ r.branch_name }}</div></td><td><span class="pill {% if r.area=='UNMAPPED' %}pill-muted{% endif %}">{{ r.area }}</span></td>
+          <td class="max-w-[330px]"><div class="font-medium text-slate-200">{{ r.standard_description }}</div><div class="truncate text-[10px] text-slate-600">{{ r.description }}</div></td>
+          <td><span class="brand-text">{{ r.brand or '—' }}</span></td><td class="mono-cell">{{ r.engine_no or '—' }}</td><td class="mono-cell">{{ r.chassis or '—' }}</td><td>{{ r.created_on or '—' }}</td><td>{{ r.incoming_date or '—' }}</td>
+          <td class="text-right"><span class="age-number {% if r.age_days>365 %}age-number-critical{% elif r.age_days>180 %}age-number-high{% elif r.age_days>90 %}age-number-warning{% else %}age-number-healthy{% endif %}">{{ r.age_days|qty }}</span></td>
+          <td class="text-right font-semibold text-slate-200">{{ r.qty|qty }}</td><td class="text-right font-medium text-slate-200">{{ r.inventory_value|money }}</td><td>{{ r.location or '—' }}</td>
+        </tr>
+        {% else %}<tr><td colspan="12" class="py-16 text-center text-slate-500">No units match the current Unit-Level filters. Try All Ages, clear the unit search, or reset the Unit View.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="table-footer">The screen is capped at 250 rows for speed. <a href="{{ url_for('aging.export_xlsx', **export_args) }}">Export the full Aging workbook with Per-Area Intelligence →</a> <span class="mx-2">·</span><a href="{{ url_for('aging.export_csv', **export_args) }}">Raw CSV</a></div>
+</section>

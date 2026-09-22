@@ -1,0 +1,86 @@
+/* =====================================================================
+   SCM IDP Dashboard v2.47.6 · Component-Level Filter Refresh
+   Filters update only the affected dashboard regions, never the page shell.
+   ===================================================================== */
+.partial-refresh-region,
+#unitTrace {
+  position: relative;
+  transition: opacity .16s ease, filter .16s ease;
+}
+
+.partial-refresh-region.is-partial-refreshing,
+#unitTrace.is-partial-refreshing {
+  cursor: progress;
+  isolation: isolate;
+}
+
+.partial-refresh-region.is-partial-refreshing::before,
+#unitTrace.is-partial-refreshing::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--bg, #030b18) 28%, transparent);
+  backdrop-filter: blur(1px);
+  pointer-events: none;
+}
+
+.partial-refresh-region.is-partial-refreshing::after,
+#unitTrace.is-partial-refreshing::after {
+  content: attr(data-loading-label);
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 36;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px 7px 31px;
+  border: 1px solid rgba(59,130,246,.28);
+  border-radius: 999px;
+  background: rgba(5,15,30,.94);
+  color: #dbeafe;
+  box-shadow: 0 10px 28px rgba(2,6,23,.18);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.partial-refresh-region.is-partial-refreshing > *,
+#unitTrace.is-partial-refreshing > * {
+  opacity: .72;
+}
+
+.partial-refresh-region.is-partial-refreshing::after,
+#unitTrace.is-partial-refreshing::after {
+  background-image: conic-gradient(from 0deg, transparent 0 22%, #60a5fa 25% 50%, transparent 53% 100%);
+  background-repeat: no-repeat;
+  background-size: 14px 14px;
+  background-position: 10px center;
+}
+
+html[data-theme="light"] .partial-refresh-region.is-partial-refreshing::before,
+html[data-theme="light"] #unitTrace.is-partial-refreshing::before {
+  background: rgba(248,251,255,.42);
+}
+
+html[data-theme="light"] .partial-refresh-region.is-partial-refreshing::after,
+html[data-theme="light"] #unitTrace.is-partial-refreshing::after {
+  background-color: rgba(255,255,255,.97);
+  color: #123454;
+  border-color: rgba(37,99,235,.24);
+  box-shadow: 0 10px 28px rgba(30,64,175,.10);
+}
+
+.filter-status:not(.is-loading) {
+  transition: color .16s ease, border-color .16s ease, background-color .16s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .partial-refresh-region,
+  #unitTrace { transition: none; }
+}

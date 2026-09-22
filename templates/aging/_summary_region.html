@@ -1,0 +1,95 @@
+{% set top_area = summary.top_area %}
+{% set top_branch = summary.top_branch %}
+{% set top_model = summary.top_model %}
+
+<section class="aging-snapshot">
+  <article class="aging-snapshot-main">
+    <div class="eyebrow">Executive Aging Snapshot</div>
+    <h2 class="aging-snapshot-title mt-1">{{ summary.risk_level }} Aging Exposure</h2>
+    <p class="aging-snapshot-copy">{{ summary.risk_message if row_count > 0 else 'No system data is loaded. Import the consolidated SCM workbook once to activate Executive, Management and Aging analytics together.' }}</p>
+    <div class="aging-snapshot-stats">
+      <div class="aging-snapshot-stat"><span>Total Units</span><b>{{ summary.total_qty|qty }}</b><small>Current inventory in the selected view</small></div>
+      <div class="aging-snapshot-stat"><span>91+ Day Exposure</span><b class="text-amber-300">{{ summary.aged_90|qty }}</b><small>{{ '%.1f'|format(summary.aged_90_pct) }}% of selected units</small></div>
+      <div class="aging-snapshot-stat"><span>Aged Capital</span><b class="text-rose-300">{{ summary.aged_90_value|money }}</b><small>Value tied to units over 90 days</small></div>
+    </div>
+  </article>
+  <article class="aging-refresh-card">
+    <div class="flex items-center justify-between gap-3"><div class="eyebrow">Latest Data Refresh</div>{% if latest_import %}<span class="live-badge">LIVE</span>{% endif %}</div>
+    <div class="mt-3 truncate text-sm font-semibold text-slate-100" title="{{ latest_import['filename'] if latest_import else 'No file loaded' }}">{{ latest_import['filename'] if latest_import else 'No consolidated workbook loaded' }}</div>
+    <div class="aging-refresh-grid">
+      <div class="aging-refresh-metric"><span>Inventory Rows</span><b>{{ (latest_import['row_count'] if latest_import else 0)|qty }}</b></div>
+      <div class="aging-refresh-metric"><span>Report Date</span><b>{{ latest_import['as_of_date'] if latest_import else '—' }}</b></div>
+      <div class="aging-refresh-metric"><span>Age Basis</span><b>{{ 'Branch' if basis=='branch' else 'Company' }}</b></div>
+      <div class="aging-refresh-metric"><span>Visible Rows</span><b>{{ row_count|qty }}</b></div>
+    </div>
+    <div class="mt-4 flex flex-wrap gap-2"><button type="button" class="btn-secondary" data-open-column-guide>Column Guide</button></div>
+  </article>
+</section>
+
+<section class="management-banner mt-6 risk-{{ summary.risk_level|lower }}">
+  <div class="management-status">
+    <div class="management-status-icon">{% if summary.risk_level=='High' %}!{% elif summary.risk_level=='Watch' %}↗{% else %}✓{% endif %}</div>
+    <div>
+      <div class="eyebrow">Management Interpretation</div>
+      <h2>{{ summary.risk_level }} Aging Exposure</h2>
+      <p>{{ summary.risk_message }}</p>
+    </div>
+  </div>
+  <div class="management-metrics">
+    <div><span>Healthy ≤90 Days</span><b>{{ summary.healthy_qty|qty }}</b><small>{{ '%.1f'|format(summary.healthy_pct) }}% of units</small></div>
+    <div><span>91+ Aged Value</span><b>{{ summary.aged_90_value|money }}</b><small>{{ '%.1f'|format(summary.aged_value_pct) }}% of inventory value</small></div>
+    <div><span>180+ Units</span><b>{{ summary.aged_180|qty }}</b><small>{{ summary.aged_180_value|money }} tied up</small></div>
+    <div><span>Oldest Unit</span><b>{{ summary.oldest|qty }} days</b><small>Maximum age in current view</small></div>
+  </div>
+</section>
+
+<section class="aging-reading-guide mt-4" aria-label="How to interpret aging">
+  <div class="aging-reading-guide-head">
+    <div><div class="eyebrow">How to Read Aging</div><h3>Follow the risk from exposure to action</h3></div>
+    <div class="aging-band-legend" aria-label="Age day legend">
+      <span class="aging-band healthy"><i></i>≤90 Healthy</span>
+      <span class="aging-band action"><i></i>91–180 Action</span>
+      <span class="aging-band high"><i></i>181–365 High</span>
+      <span class="aging-band critical"><i></i>366+ Critical</span>
+    </div>
+  </div>
+  <div class="aging-reading-steps">
+    <div><b>1</b><span><strong>Measure exposure</strong><small>Start with 91+ units and aged capital.</small></span></div>
+    <div><b>2</b><span><strong>Find concentration</strong><small>Use Area and Branch ranking to locate the inventory.</small></span></div>
+    <div><b>3</b><span><strong>Prioritize models</strong><small>Sort Highest → Lowest in Model-Level Intelligence.</small></span></div>
+    <div><b>4</b><span><strong>Trace exact units</strong><small>Review oldest Engine/Chassis records for execution.</small></span></div>
+  </div>
+</section>
+
+<section class="priority-grid mt-6">
+  <article class="priority-card priority-area">
+    <div class="priority-head"><span>01</span><div class="eyebrow">Area Priority</div></div>
+    <h3>{{ top_area.name if top_area else 'No data' }}</h3>
+    {% if top_area %}
+    <div class="priority-stats"><b>{{ top_area.aged_90|qty }} aged units</b><span>{{ '%.1f'|format(top_area.aged_90_pct) }}% of area stock</span></div>
+    <p>{{ top_area.aged_value|money }} of inventory value is already beyond 90 days across {{ top_area.branch_count }} branches.</p>
+    {% else %}<p>No area risk data available for the current filter.</p>{% endif %}
+  </article>
+  <article class="priority-card priority-branch">
+    <div class="priority-head"><span>02</span><div class="eyebrow">Branch Priority</div></div>
+    <h3>{{ top_branch.name if top_branch else 'No data' }}</h3>
+    {% if top_branch %}
+    <div class="priority-stats"><b>{{ top_branch.aged_90|qty }} aged units</b><span>{{ '%.1f'|format(top_branch.aged_90_pct) }}% of branch stock</span></div>
+    <p>{{ top_branch.area }} · {{ top_branch.aged_value|money }} of value is over 90 days. Oldest unit: {{ top_branch.oldest|qty }} days.</p>
+    {% else %}<p>No branch risk data available for the current filter.</p>{% endif %}
+  </article>
+  <article class="priority-card priority-model">
+    <div class="priority-head"><span>03</span><div class="eyebrow">Model Priority</div></div>
+    <h3 class="clamp-2">{{ top_model.standard_description if top_model else 'No data' }}</h3>
+    {% if top_model %}
+    <div class="priority-stats"><b>{{ top_model.aged_90|qty }} aged units</b><span>{{ '%.1f'|format(top_model.aged_90_pct) }}% of model stock</span></div>
+    <p>{{ top_model.aged_value|money }} is tied to aged units across {{ top_model.branch_count }} branches and {{ top_model.area_count }} areas.</p>
+    {% else %}<p>No model risk data available for the current filter.</p>{% endif %}
+  </article>
+</section>
+
+{% if filter_warnings %}
+<div class="aging-filter-repair-notice mt-4" role="status">
+  <strong>Filter scope corrected for this view.</strong> {{ filter_warnings|join(' ') }} Export links now use the corrected scope.
+</div>
+{% endif %}
