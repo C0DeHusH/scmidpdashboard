@@ -1,7 +1,14 @@
-# SCM Inventory & Distribution Planning Control Tower — v2.48.4
+# SCM Inventory & Distribution Planning Control Tower — v2.48.6
 
 
 
+
+## v2.48.6 Request + Management Filter Refinement
+
+- Branch Request Status Report Excel now shows **Report Generated** as date only and no longer includes Reviewed / Approved signature fields.
+- Management Order Plan Brand filtering now limits the searchable Model list to models under the selected Brand.
+- Request Builder now includes Brand filtering and a type-to-search Model field.
+- Removed the Management **Print Plan** and Branch Request **Print Request** buttons; Excel download remains available.
 
 ## v2.48.4 Aging Export Source-Format Fix
 

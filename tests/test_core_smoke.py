@@ -48,6 +48,10 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn('id="simBrand"', template)
         self.assertIn('list="simModelOptions"', template)
         self.assertIn('list="managementModelOptions"', template)
+        self.assertNotIn('id="simModelDropdown"', template)
+        self.assertNotIn('id="managementModelDropdown"', template)
+        self.assertNotIn('simModelDropdown', js)
+        self.assertNotIn('managementModelDropdown', js)
         self.assertIn("brand=${encodeURIComponent(brand)}", js)
 
         store = DashboardStore(WORKBOOK)
@@ -57,6 +61,28 @@ class DashboardCoreSmokeTests(unittest.TestCase):
             brand = catalog["brands"][0]
             scoped = store.branch_model_catalog(branch, brand)
             self.assertTrue(set(scoped["models"]).issubset(set(catalog["models"])))
+
+
+    def test_presentation_export_is_simple_and_image_free(self):
+        from pptx import Presentation
+        from dashboard.ppt_export import build_presentation
+
+        payload = {
+            "export_generated_at": "2026-10-05T12:00:00+08:00",
+            "kpis": {
+                "Sample": {
+                    "meta": {"label": "Sample KPI", "unit": "percent", "good": "low"},
+                    "ytd": {"labels": ["Sep 2026"], "values": [10], "trend": [9], "latest": 10, "delta": -1},
+                    "weekly": {"labels": ["Week 1"], "values": [8], "trend": [7], "latest": 8, "delta": -2},
+                }
+            },
+            "reorder_card": {"title": "Reorder", "rows": []},
+            "aging_summary": None,
+        }
+        ppt = build_presentation(payload, {"ranking": []}, {}, [])
+        prs = Presentation(BytesIO(ppt))
+        self.assertGreaterEqual(len(prs.slides), 3)
+        self.assertEqual(sum(1 for slide in prs.slides for shape in slide.shapes if shape.shape_type == 13), 0)
 
     def test_branch_request_export_date_only_and_no_signatures(self):
         from dashboard.xlsx_export import build_branch_request_xlsx
