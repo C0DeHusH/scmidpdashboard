@@ -436,7 +436,8 @@ class DashboardStore:
 
         effective = [effective_record(r) for r in records]
         all_brands = sorted({r["brand"] for r in effective if r["brand"]})
-        all_models = sorted({r["model"] for r in effective if r["model"]})
+        model_scope = [r for r in effective if not brand or brand == "All Brands" or r["brand"] == brand]
+        all_models = sorted({r["model"] for r in model_scope if r["model"]})
         all_statuses = sorted({r["stock_status"] for r in effective if r["stock_status"]})
 
         def matches(r: Dict[str, Any]) -> bool:
@@ -446,7 +447,7 @@ class DashboardStore:
                 return False
             if status and status != "All Statuses" and r["stock_status"].lower() != status.lower():
                 return False
-            if model and model != "All Models" and r["model"] != model:
+            if model and model != "All Models" and model.lower() not in r["model"].lower():
                 return False
             return True
 
@@ -695,14 +696,19 @@ class DashboardStore:
             "classes": classes,
         }
 
-    def model_lookup(self, branch: str, model: str) -> Optional[Dict[str, Any]]:
+    def model_lookup(self, branch: str, model: str, brand: str = "") -> Optional[Dict[str, Any]]:
         with self._lock:
-            recs = [r for r in self.raw_records if r["branch"] == branch and r["model"] == model]
+            recs = [
+                r for r in self.raw_records
+                if r["branch"] == branch
+                and r["model"] == model
+                and (not brand or brand == "All Brands" or (r["brand"] or "Unspecified") == brand)
+            ]
         if not recs:
             return None
         r = sorted(recs, key=lambda x: x["rank"])[0]
         return {
-            "branch": r["branch"], "area": r["area"], "model": r["model"],
+            "branch": r["branch"], "area": r["area"], "brand": r["brand"] or "Unspecified", "model": r["model"],
             "class": f"Class {r['class']}" if r["class"] else r["class_label"],
             "rank": r["rank"], "inventory": round(r["inventory"], 3),
             "stock_status": r["stock_status"],
@@ -711,9 +717,18 @@ class DashboardStore:
             "avg_daily_sale": round(r["avg_daily_sale"], 6),
         }
 
-    def branch_models(self, branch: str) -> List[str]:
+    def branch_model_catalog(self, branch: str, brand: str = "All Brands") -> Dict[str, Any]:
         with self._lock:
-            return sorted({r["model"] for r in self.raw_records if r["branch"] == branch})
+            rows = [r for r in self.raw_records if r["branch"] == branch]
+        brands = sorted({r["brand"] or "Unspecified" for r in rows})
+        scoped = rows if not brand or brand == "All Brands" else [r for r in rows if (r["brand"] or "Unspecified") == brand]
+        return {
+            "brands": brands,
+            "models": sorted({r["model"] for r in scoped if r["model"]}),
+        }
+
+    def branch_models(self, branch: str, brand: str = "All Brands") -> List[str]:
+        return self.branch_model_catalog(branch, brand)["models"]
 
 
     def status_summary(

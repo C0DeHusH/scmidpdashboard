@@ -35,6 +35,12 @@ BLUE_LINE = RGBColor(59, 130, 246)
 CYAN = RGBColor(56, 189, 248)
 AQUA = RGBColor(125, 211, 252)
 BLUE_PALE = RGBColor(191, 219, 254)
+GOLD = RGBColor(245, 179, 47)
+GOLD2 = RGBColor(255, 210, 86)
+PANEL_DARK = RGBColor(2, 18, 38)
+COVER_GLOBE_PATH = Path(__file__).resolve().parents[1] / "static" / "ppt_desired_cover_globe.png"
+HEADER_NETWORK_PATH = Path(__file__).resolve().parents[1] / "static" / "ppt_desired_header_network.png"
+BRANCH_HEADER_PATH = Path(__file__).resolve().parents[1] / "static" / "ppt_desired_branch_header.png"
 
 
 
@@ -71,6 +77,25 @@ def _delta_favorable(delta, good):
 def _set_bg(slide, color=DARK):
     fill = slide.background.fill
     fill.solid(); fill.fore_color.rgb = color
+
+def _add_picture_safe(slide, path: Path, x, y, w=None, h=None, transparency=None):
+    if not path or not Path(path).exists():
+        return None
+    try:
+        kwargs = {}
+        if w is not None: kwargs["width"] = Inches(w)
+        if h is not None: kwargs["height"] = Inches(h)
+        pic = slide.shapes.add_picture(str(path), Inches(x), Inches(y), **kwargs)
+        return pic
+    except Exception:
+        return None
+
+def _add_gold_rule(slide, x=0.48, y=1.10, w=1.95):
+    bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(0.045))
+    bar.fill.solid(); bar.fill.fore_color.rgb = GOLD; bar.line.fill.background()
+    bar2 = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x+w+0.04), Inches(y), Inches(0.75), Inches(0.045))
+    bar2.fill.solid(); bar2.fill.fore_color.rgb = CYAN; bar2.line.fill.background()
+    return bar
 
 def _generated_date(data: Dict[str, Any]) -> str:
     """Cover-page date: when this export was generated, not the latest KPI date."""
@@ -215,7 +240,7 @@ def _add_kpi_template_slide(prs, blank, name: str, kpi: Dict[str, Any], period_k
     _set_bg(slide, NAVY)
     # Native vector background: lighter, faster and fully editable.
     top_rule=slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(0.075))
-    top_rule.fill.solid(); top_rule.fill.fore_color.rgb=BLUE; top_rule.line.fill.background()
+    top_rule.fill.solid(); top_rule.fill.fore_color.rgb=GOLD; top_rule.line.fill.background()
     glow=slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(10.55), Inches(0.075), Inches(2.78), Inches(0.18))
     glow.fill.solid(); glow.fill.fore_color.rgb=CYAN; glow.line.fill.background()
 
@@ -233,7 +258,7 @@ def _add_kpi_template_slide(prs, blank, name: str, kpi: Dict[str, Any], period_k
 
     # Header
     secondary_x = min(6.05, 0.48 + 0.22 * len(primary))
-    _textbox(slide,0.46,0.66,max(2.3,secondary_x-0.55),0.50,primary,25,True,SKY_BLUE)
+    _textbox(slide,0.46,0.66,max(2.3,secondary_x-0.55),0.50,primary,25,True,GOLD)
     _textbox(slide,secondary_x,0.66,10.05-secondary_x,0.50,secondary,25,True,WHITE)
     _textbox(slide,0.47,1.23,9.25,0.25,strap,8.8,False,WHITE)
 
@@ -245,7 +270,7 @@ def _add_kpi_template_slide(prs, blank, name: str, kpi: Dict[str, Any], period_k
     card.fill.solid(); card.fill.fore_color.rgb=RGBColor(5,36,58); card.line.color.rgb=SKY_BLUE; card.line.width=Pt(1.2)
     circle=slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(0.55), Inches(2.43), Inches(0.86), Inches(0.86))
     circle.fill.solid(); circle.fill.fore_color.rgb=RGBColor(8,45,67); circle.line.color.rgb=SKY_BLUE; circle.line.width=Pt(1.3)
-    _textbox(slide,0.67,2.67,0.62,0.24,"KPI",10,True,SKY_BLUE,PP_ALIGN.CENTER)
+    _textbox(slide,0.67,2.67,0.62,0.24,"KPI",10,True,GOLD,PP_ALIGN.CENTER)
     latest_fmt=("—" if latest is None else (_whole(latest) if unit=="percent" else _doi_whole(latest)))
     suffix="%" if unit=="percent" else " d"
     _textbox(slide,1.58,2.37,1.80,0.62,f"{latest_fmt}{suffix}",35,True,WHITE,PP_ALIGN.CENTER)
@@ -326,46 +351,45 @@ def _add_logo(slide, x=9.70, y=0.32, w=2.85):
 
 
 def _title(slide, title, subtitle=None):
-    # Executive blue header shared by all analytical slides.
-    band = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(1.12))
-    band.fill.solid(); band.fill.fore_color.rgb = RGBColor(5, 22, 43); band.line.fill.background()
-    accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(0.10), Inches(1.12))
-    accent.fill.solid(); accent.fill.fore_color.rgb = BLUE; accent.line.fill.background()
-    _add_logo(slide, x=10.25, y=0.24, w=2.38)
-    _textbox(slide, 0.55, 0.28, 9.25, 0.44, title, 22, True, WHITE)
+    # Desired export style: dark executive command-center header with gold/blue accents.
+    band = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(1.18))
+    band.fill.solid(); band.fill.fore_color.rgb = RGBColor(2, 16, 37); band.line.fill.background()
+    _add_picture_safe(slide, HEADER_NETWORK_PATH, 9.10, 0.0, w=4.23, h=1.18)
+    accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(0.065))
+    accent.fill.solid(); accent.fill.fore_color.rgb = GOLD; accent.line.fill.background()
+    left = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(0.10), Inches(7.5))
+    left.fill.solid(); left.fill.fore_color.rgb = RGBColor(0, 97, 175); left.line.fill.background()
+    _add_logo(slide, x=10.35, y=0.27, w=2.28)
+    _textbox(slide, 0.45, 0.22, 1.85, 0.18, "SCM IDP REPORT", 6.8, True, GOLD)
+    _textbox(slide, 0.45, 0.45, 8.85, 0.42, title, 22, True, WHITE)
     if subtitle:
-        _textbox(slide, 0.56, 0.76, 9.35, 0.24, subtitle, 8.6, False, MUTED)
-    bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.56), Inches(1.075), Inches(1.70), Inches(0.045))
-    bar.fill.solid(); bar.fill.fore_color.rgb = BLUE; bar.line.fill.background()
-    bar2 = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(2.28), Inches(1.075), Inches(0.82), Inches(0.045))
-    bar2.fill.solid(); bar2.fill.fore_color.rgb = CYAN; bar2.line.fill.background()
-
+        _textbox(slide, 0.46, 0.87, 8.80, 0.20, subtitle, 7.6, False, MUTED)
+    _add_gold_rule(slide, 0.46, 1.13, 1.65)
 
 
 def _section_divider(prs, blank, title: str, subtitle: str, items: List[str] | None = None):
     slide = prs.slides.add_slide(blank); _set_bg(slide, NAVY)
-    band = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(7.5))
-    band.fill.solid(); band.fill.fore_color.rgb = NAVY; band.line.fill.background()
-    glow = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(8.6), Inches(-1.45), Inches(6.2), Inches(6.2))
-    glow.fill.solid(); glow.fill.fore_color.rgb = RGBColor(7, 52, 96); glow.line.fill.background()
-    rail = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.72), Inches(1.18), Inches(0.10), Inches(4.85))
-    rail.fill.solid(); rail.fill.fore_color.rgb = BLUE; rail.line.fill.background()
+    _add_picture_safe(slide, COVER_GLOBE_PATH, 5.15, 0, w=8.18, h=7.5)
+    veil = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(7.5))
+    veil.fill.solid(); veil.fill.fore_color.rgb = RGBColor(2, 13, 30); veil.line.fill.background()
+    rail = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.72), Inches(1.15), Inches(0.095), Inches(4.85))
+    rail.fill.solid(); rail.fill.fore_color.rgb = GOLD; rail.line.fill.background()
     _add_logo(slide, x=10.12, y=0.42, w=2.55)
-    _textbox(slide, 0.98, 1.32, 8.9, 0.28, "MANAGEMENT REVIEW SECTION", 9, True, BLUE_PALE)
-    _textbox(slide, 0.98, 1.85, 9.4, 0.72, title.upper(), 30, True, WHITE)
-    _textbox(slide, 1.00, 2.70, 8.25, 0.42, subtitle, 14, False, MUTED)
+    _textbox(slide, 0.98, 1.24, 8.9, 0.28, "OPERATIONS EXCELLENCE", 8.0, True, GOLD)
+    _textbox(slide, 0.98, 1.78, 8.9, 0.76, title.upper(), 31, True, WHITE)
+    _textbox(slide, 1.00, 2.68, 8.15, 0.44, subtitle, 13, False, BLUE_PALE)
     for i, item in enumerate(items or []):
-        y = 3.62 + i * 0.54
+        y = 3.55 + i * 0.54
         c = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(1.00), Inches(y), Inches(0.30), Inches(0.30))
-        c.fill.solid(); c.fill.fore_color.rgb = SKY_BLUE; c.line.fill.background()
-        _textbox(slide, 1.48, y+0.02, 8.8, 0.18, item, 10.3, False, WHITE)
-    _textbox(slide, 0.98, 6.86, 8.3, 0.18, "Designed for executive discussion, action ownership and branch-level follow-through.", 7.6, True, BLUE_PALE)
+        c.fill.solid(); c.fill.fore_color.rgb = RGBColor(4, 92, 169); c.line.color.rgb = GOLD
+        _textbox(slide, 1.48, y+0.02, 8.8, 0.18, item, 10.1, False, WHITE)
+    _textbox(slide, 0.98, 6.86, 8.3, 0.18, "RIGHT PRODUCTS  •  RIGHT CUSTOMERS  •  A STRONGER TOMORROW", 7.0, True, GOLD)
     return slide
 
 
 def _mini_metric(slide, x, y, w, h, label, value, accent=BLUE_LINE, sub=None):
     sh = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
-    sh.fill.solid(); sh.fill.fore_color.rgb = DARK2; sh.line.color.rgb = RGBColor(30, 74, 118); sh.line.width = Pt(0.8)
+    sh.fill.solid(); sh.fill.fore_color.rgb = DARK2; sh.line.color.rgb = RGBColor(22, 76, 126); sh.line.width = Pt(0.8)
     ac = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(0.055), Inches(h))
     ac.fill.solid(); ac.fill.fore_color.rgb = accent; ac.line.fill.background()
     _textbox(slide, x+0.15, y+0.10, w-0.25, 0.16, label, 7.1, True, MUTED)
@@ -376,7 +400,7 @@ def _mini_metric(slide, x, y, w, h, label, value, accent=BLUE_LINE, sub=None):
 
 def _card(slide, x, y, w, h, label, value, suffix="", delta=None, good="low"):
     sh = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
-    sh.fill.solid(); sh.fill.fore_color.rgb = DARK2; sh.line.color.rgb = RGBColor(30, 74, 118)
+    sh.fill.solid(); sh.fill.fore_color.rgb = DARK2; sh.line.color.rgb = RGBColor(22, 76, 126)
     accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x+0.10), Inches(y+0.10), Inches(0.055), Inches(max(0.25, h-0.20)))
     accent.fill.solid(); accent.fill.fore_color.rgb = BLUE_LINE; accent.line.fill.background()
     _textbox(slide, x+0.22, y+0.12, w-0.42, 0.25, label, 8.5, True, MUTED)
@@ -396,7 +420,7 @@ def _table_header(slide, x, y, columns, widths, h=0.30):
     x0 = x
     for title, w in zip(columns, widths):
         sh = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x0), Inches(y), Inches(w), Inches(h))
-        sh.fill.solid(); sh.fill.fore_color.rgb = RGBColor(10, 49, 91); sh.line.color.rgb = RGBColor(42, 91, 142)
+        sh.fill.solid(); sh.fill.fore_color.rgb = RGBColor(3, 45, 87); sh.line.color.rgb = GOLD
         _textbox(slide, x0+0.04, y+0.07, w-0.08, h-0.08, title, 6.8, True, WHITE, PP_ALIGN.CENTER)
         x0 += w
 
@@ -405,8 +429,8 @@ def _table_row(slide, x, y, values, widths, h=0.28, danger=False):
     x0 = x
     for i, (val, w) in enumerate(zip(values, widths)):
         sh = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x0), Inches(y), Inches(w), Inches(h))
-        sh.fill.solid(); sh.fill.fore_color.rgb = RGBColor(8, 30, 56) if not danger else RGBColor(58, 28, 36)
-        sh.line.color.rgb = RGBColor(30, 74, 118)
+        sh.fill.solid(); sh.fill.fore_color.rgb = RGBColor(3, 25, 54) if not danger else RGBColor(62, 23, 30)
+        sh.line.color.rgb = RGBColor(22, 76, 126)
         col = RED if danger and i in (3,4,5,6) else WHITE
         align = PP_ALIGN.CENTER if i not in (1,2) else PP_ALIGN.LEFT
         _textbox(slide, x0+0.04, y+0.06, w-0.08, h-0.08, val, 6.5, i in (0,3,4,5,6), col, align)
@@ -662,6 +686,7 @@ def _add_branch_model_detail_slides(prs, blank, all_branches: List[Dict[str, Any
                 slide = prs.slides.add_slide(blank); _set_bg(slide)
                 page_suffix = f" · {page}/{total_pages}" if total_pages > 1 else ""
                 _title(slide, f"{branch} · CLASS {cls} MODEL ACTION PAGE{page_suffix}", f"{area} • Branch Stock-Out Rate plus model Stock Status, Inventory, Suggested Transfer and DoI.")
+                _add_picture_safe(slide, BRANCH_HEADER_PATH, 9.60, 1.18, w=2.95, h=1.08)
 
                 # Branch stock-out rate summary on every branch model page.
                 branch_cards = [
@@ -892,35 +917,20 @@ def build_presentation(data: Dict[str, Any], area_data: Dict[str, Any], branch_d
     prs = Presentation(); prs.slide_width = Inches(13.333); prs.slide_height = Inches(7.5)
     blank = prs.slide_layouts[6]
 
-    # Slide 1 Cover — native vector executive blue design.
-    slide = prs.slides.add_slide(blank); _set_bg(slide, NAVY)
-    rail = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(10.35), Inches(0), Inches(2.983), Inches(7.5))
-    rail.fill.solid(); rail.fill.fore_color.rgb = RGBColor(6, 35, 68); rail.line.fill.background()
-    rail2 = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(10.35), Inches(0), Inches(0.12), Inches(7.5))
-    rail2.fill.solid(); rail2.fill.fore_color.rgb = BLUE; rail2.line.fill.background()
-    top = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(10.35), Inches(0.10))
-    top.fill.solid(); top.fill.fore_color.rgb = CYAN; top.line.fill.background()
-    _add_logo(slide, x=10.68, y=0.42, w=2.05)
-    _textbox(slide, 0.72, 0.72, 5.6, 0.28, "SCM • INVENTORY CONTROL TOWER", 10, True, BLUE_PALE)
-    _textbox(slide, 0.72, 1.48, 8.9, 0.66, "INVENTORY &", 34, True, WHITE)
-    _textbox(slide, 0.72, 2.15, 8.9, 0.66, "DISTRIBUTION PLANNING", 34, True, SKY_BLUE)
-    _textbox(slide, 0.72, 2.82, 8.9, 0.48, "EXECUTIVE PERFORMANCE REVIEW", 20, True, WHITE)
-    _textbox(slide, 0.74, 3.48, 7.8, 0.30, "Visibility • Availability • Replenishment • Distribution", 11, False, MUTED)
-    # Date capsule always reflects the actual generation date.
-    capsule = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.72), Inches(4.38), Inches(3.45), Inches(0.70))
-    capsule.fill.solid(); capsule.fill.fore_color.rgb = RGBColor(8, 37, 71); capsule.line.color.rgb = BLUE_LINE; capsule.line.width = Pt(1.0)
-    _textbox(slide, 0.94, 4.52, 3.0, 0.18, "GENERATED", 8, True, MUTED)
-    _textbox(slide, 0.94, 4.75, 3.0, 0.23, _generated_date(data), 13.5, True, WHITE)
-    # Management pillars.
-    pillars=[("01","VISIBILITY","One source of truth"),("02","CONTROL","Actionable exceptions"),("03","SERVICE","Branch availability")]
-    for i,(num,head,sub) in enumerate(pillars):
-        y=4.48+i*0.86
-        c=slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(10.77), Inches(y), Inches(0.50), Inches(0.50))
-        c.fill.solid(); c.fill.fore_color.rgb=BLUE; c.line.fill.background()
-        _textbox(slide,10.87,y+0.14,0.30,0.14,num,7.5,True,WHITE,PP_ALIGN.CENTER)
-        _textbox(slide,11.45,y+0.01,1.35,0.20,head,8.5,True,WHITE)
-        _textbox(slide,11.45,y+0.25,1.35,0.22,sub,7.0,False,MUTED)
-    _textbox(slide, 0.72, 6.92, 8.7, 0.22, "SUPPLY CHAIN MANAGEMENT • PEOPLE • PROCESS • PERFORMANCE", 7.4, True, BLUE_PALE)
+    # Slide 1 Cover — rebuilt to match the attached desired SCM IDP report design and images.
+    slide = prs.slides.add_slide(blank); _set_bg(slide, RGBColor(2, 14, 32))
+    _add_picture_safe(slide, COVER_GLOBE_PATH, 4.60, 0, w=8.73, h=7.5)
+    left_shade = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(8.25), Inches(7.5))
+    left_shade.fill.solid(); left_shade.fill.fore_color.rgb = RGBColor(2, 14, 32); left_shade.line.fill.background()
+    gold = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.70), Inches(3.37), Inches(3.75), Inches(0.055))
+    gold.fill.solid(); gold.fill.fore_color.rgb = GOLD; gold.line.fill.background()
+    _add_logo(slide, x=10.60, y=0.35, w=2.15)
+    _textbox(slide, 0.72, 0.60, 5.8, 0.20, "OPERATIONS EXCELLENCE", 7.6, True, BLUE_PALE)
+    _textbox(slide, 0.72, 1.37, 8.3, 0.62, "INVENTORY AND", 30, True, WHITE)
+    _textbox(slide, 0.72, 2.00, 8.3, 0.62, "DISTRIBUTION PLANNING", 30, True, GOLD)
+    _textbox(slide, 0.72, 2.63, 7.6, 0.54, "DEPARTMENT - SCM", 26, True, WHITE)
+    _textbox(slide, 0.73, 3.72, 4.8, 0.24, _generated_date(data), 10.5, False, WHITE)
+    _textbox(slide, 0.72, 6.85, 8.2, 0.20, "RIGHT PRODUCTS  •  RIGHT CUSTOMERS  •  A STRONGER TOMORROW", 6.8, True, BLUE_PALE)
 
     _add_report_agenda_slide(prs, blank, bool(data.get("aging_summary")))
 

@@ -42,7 +42,7 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
     rows.append(_row(1, [_cell("A1", "BRANCH REQUEST STATUS REPORT", 1)], 24))
     rows.append(_row(2, [_cell("A2", "MUTI MC SCM Executive Control Tower • Branch Request Report", 2)], 18))
     rows.append(_row(3, [] , 8))
-    rows.append(_row(4, [_cell("A4", "REQUESTING BRANCH", 3), _cell("C4", branch, 4), _cell("F4", "REPORT GENERATED", 3), _cell("H4", now.strftime("%d %b %Y • %I:%M %p"), 4)], 18))
+    rows.append(_row(4, [_cell("A4", "REQUESTING BRANCH", 3), _cell("C4", branch, 4), _cell("F4", "REPORT GENERATED", 3), _cell("H4", now.strftime("%d %b %Y"), 4)], 18))
     rows.append(_row(5, [_cell("A5", "AREA", 3), _cell("C5", area, 4)], 18))
     rows.append(_row(6, [], 8))
 
@@ -63,11 +63,7 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
             cells.append(_cell(ref, value, 7 if r % 2 else 8, numeric))
         rows.append(_row(r, cells, 24))
 
-    sig = start + max(1, len(items)) + 3
-    rows.append(_row(sig, [_cell(f"A{sig}", "__________________________", 9), _cell(f"D{sig}", "__________________________", 9), _cell(f"G{sig}", "____________", 9)], 18))
-    rows.append(_row(sig + 1, [_cell(f"A{sig+1}", "Prepared / Reviewed By", 10), _cell(f"D{sig+1}", "Approved By", 10), _cell(f"G{sig+1}", "Date", 10)], 16))
-
-    merges = ["A1:I1", "A2:I2", "A4:B4", "C4:E4", "F4:G4", "H4:I4", "A5:B5", "C5:E5", f"A{sig}:C{sig}", f"D{sig}:F{sig}", f"G{sig}:I{sig}", f"A{sig+1}:C{sig+1}", f"D{sig+1}:F{sig+1}", f"G{sig+1}:I{sig+1}"]
+    merges = ["A1:I1", "A2:I2", "A4:B4", "C4:E4", "F4:G4", "H4:I4", "A5:B5", "C5:E5"]
 
     sheet_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -140,10 +136,11 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
 <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
 <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
 </Relationships>'''
+    last_row = start + max(1, len(items)) - 1
     wb_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheets><sheet name="Branch Request" sheetId="1" r:id="rId1"/></sheets>
-<definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">'Branch Request'!$A$1:$I${sig+1}</definedName><definedName name="_xlnm.Print_Titles" localSheetId="0">'Branch Request'!$7:$7</definedName></definedNames>
+<definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">'Branch Request'!$A$1:$I${last_row}</definedName><definedName name="_xlnm.Print_Titles" localSheetId="0">'Branch Request'!$7:$7</definedName></definedNames>
 </workbook>'''
     wb_rels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">

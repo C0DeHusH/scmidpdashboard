@@ -33,7 +33,7 @@ from dashboard.cloud_state import VercelBlobState
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env")
 DATA_FILE = BASE / "data" / "MC_Dashboard_IMPORT.xlsx"
-APP_VERSION = "2.48.5"
+APP_VERSION = "2.48.6"
 IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
 
 # Vercel's deployed project filesystem is read-only except for the function's
@@ -929,14 +929,17 @@ def delivery_template():
 @app.get("/api/branch-models")
 def api_branch_models():
     branch = request.args.get("branch", "")
-    return jsonify({"branch": branch, "models": store.branch_models(branch)})
+    brand = request.args.get("brand", "All Brands")
+    catalog = store.branch_model_catalog(branch, brand)
+    return jsonify({"branch": branch, "brand": brand, **catalog})
 
 
 @app.get("/api/model")
 def api_model():
     branch = request.args.get("branch", "")
+    brand = request.args.get("brand", "All Brands")
     model = request.args.get("model", "")
-    item = store.model_lookup(branch, model)
+    item = store.model_lookup(branch, model, brand)
     if not item:
         return jsonify({"error": "Model not found for selected branch."}), 404
     return jsonify(item)
@@ -1253,7 +1256,8 @@ def _prepare_branch_request_output(payload: dict) -> tuple[str, str, list]:
     area = ""
     for item in items:
         model = str(item.get("model", "")).strip()
-        base = store.model_lookup(branch, model)
+        brand = str(item.get("brand", "All Brands")).strip() or "All Brands"
+        base = store.model_lookup(branch, model, brand)
         if not base:
             continue
         try:

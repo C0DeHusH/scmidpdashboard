@@ -40,6 +40,38 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn("status_summary", payload)
         self.assertIn("reorder_card", payload)
 
+    def test_request_and_management_filter_refinement(self):
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        js = (ROOT / "static" / "js" / "dashboard-app.js").read_text(encoding="utf-8")
+        self.assertNotIn('id="printManagementBtn"', template)
+        self.assertNotIn('id="printRequest"', template)
+        self.assertIn('id="simBrand"', template)
+        self.assertIn('list="simModelOptions"', template)
+        self.assertIn('list="managementModelOptions"', template)
+        self.assertIn("brand=${encodeURIComponent(brand)}", js)
+
+        store = DashboardStore(WORKBOOK)
+        branch = store.branches[0]
+        catalog = store.branch_model_catalog(branch)
+        if catalog["brands"]:
+            brand = catalog["brands"][0]
+            scoped = store.branch_model_catalog(branch, brand)
+            self.assertTrue(set(scoped["models"]).issubset(set(catalog["models"])))
+
+    def test_branch_request_export_date_only_and_no_signatures(self):
+        from dashboard.xlsx_export import build_branch_request_xlsx
+        payload = [{
+            "model": "TEST MODEL", "class": "Class A", "inventory": 2, "requested_qty": 1,
+            "stock_status": "Re-order", "doi": 10, "new_doi": 15, "remarks": "Test",
+        }]
+        wb = load_workbook(BytesIO(build_branch_request_xlsx("TEST BRANCH", "AREA I", payload)), data_only=True)
+        ws = wb.active
+        generated = str(ws["H4"].value or "")
+        self.assertNotIn(":", generated)
+        values = [str(cell.value or "") for row in ws.iter_rows() for cell in row]
+        self.assertFalse(any("Reviewed" in value for value in values))
+        self.assertFalse(any("Approved By" in value for value in values))
+
     def test_empty_kpi_series_are_not_shared(self):
         kpis = DashboardStore._empty_kpis()
         first, second = TARGET_KPIS[:2]
@@ -578,12 +610,14 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
         js = (ROOT / "static" / "js" / "dashboard-app.js").read_text(encoding="utf-8")
         app_source = (ROOT / "app.py").read_text(encoding="utf-8")
-        for element_id in ["printManagementBtn", "requestOutputBranch", "printRequest", "downloadRequest"]:
+        for element_id in ["requestOutputBranch", "downloadRequest"]:
             self.assertEqual(template.count(f'id="{element_id}"'), 1, element_id)
+        self.assertNotIn('id="printManagementBtn"', template)
+        self.assertNotIn('id="printRequest"', template)
         self.assertIn("Multiple branches are in the request queue", template)
         self.assertIn("state.requests.filter(x=>x.branch===branch)", js)
-        self.assertIn("/admin/print/request", js)
-        self.assertIn("/admin/print/management", js)
+        self.assertNotIn("$('#printRequest')", js)
+        self.assertNotIn("$('#printManagementBtn')", js)
         self.assertIn("managementOutputPayload()", js)
         self.assertIn('@app.post("/admin/print/request")', app_source)
         self.assertIn('@app.post("/admin/print/management")', app_source)
