@@ -1,3 +1,13 @@
+# Version 2.49.2 — Class, average daily sales and single searchable Model field
+
+- Management Order Plan includes dedicated Class and Avg. Daily Sale (Qty) columns, including each brand worksheet.
+- Branch Request Simulator displays average daily sales in the model snapshot and request preview and Excel export. ADS is displayed to two decimals without rounding the source values used for calculations.
+- Both Model selectors now combine text search and dropdown selection in one keyboard-accessible field.
+
+# Version 2.49.1 — Management Order Plan sales column
+
+- Added a dedicated read-only `3Mo Sales Qty Total` column after Model in the Management Order Plan, using the exact imported sales field. Every brand worksheet in the Excel export includes the same numeric column. Unknown quantities remain blank in Excel and display a dash on screen. Print layout, totals and column references are aligned with the new column.
+
 # Version 2.49.0 — Dashboard improvements
 
 - Retired the Delivery Plan workspace and navigation (including Motorcycle Aging navigation). Legacy delivery endpoints are disabled; existing delivery files are retained for archival purposes. The existing Clear All User Data action still clears archived delivery data as explicitly described in its confirmation dialog.

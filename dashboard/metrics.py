@@ -453,7 +453,7 @@ class DashboardStore:
         all_models = sorted({r["model"] for r in model_scope if r["model"]})
         model_options = sorted(({
             "model": r["model"], "brand": r["brand"], "class": r["class"],
-            "sales_3m": r.get("sales_3m"), "key": r["key"],
+            "sales_3m": r.get("sales_3m"), "avg_daily_sale": r["avg_daily_sale"], "key": r["key"],
         } for r in model_scope
             if (not class_key or class_key == "All Classes" or r["class"] == class_key)
             and (not status or status == "All Statuses" or r["stock_status"].lower() == status.lower())),

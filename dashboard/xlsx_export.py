@@ -46,24 +46,24 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
     rows.append(_row(5, [_cell("A5", "AREA", 3), _cell("C5", area, 4)], 18))
     rows.append(_row(6, [], 8))
 
-    headers = ["NO.", "MODEL", "CLASS", "3 MONTHS SALES (QTY)", "INVENTORY", "REQUEST QTY", "STOCK STATUS", "CURRENT DoI", "NEW DoI", "REMARKS"]
+    headers = ["NO.", "MODEL", "CLASS", "3 MONTHS SALES (QTY)", "Avg. Daily Sale (Qty)", "INVENTORY", "REQUEST QTY", "STOCK STATUS", "CURRENT DoI", "NEW DoI", "REMARKS"]
     rows.append(_row(7, [_cell(f"{chr(65+i)}7", h, 6) for i, h in enumerate(headers)], 32))
     start = 8
     for idx, item in enumerate(items, 1):
         r = start + idx - 1
         vals = [
-            idx, item.get("model", ""), item.get("class", ""), item.get("sales_3m"), _whole(item.get("inventory", 0)),
+            idx, item.get("model", ""), item.get("class", ""), item.get("sales_3m"), item.get("avg_daily_sale"), _whole(item.get("inventory", 0)),
             _whole(item.get("requested_qty", 0)), item.get("stock_status", ""), _doi_whole(item.get("doi", 0)),
             _doi_whole(item.get("new_doi", "N/A")), item.get("remarks", ""),
         ]
         cells = []
         for c, value in enumerate(vals):
             ref = f"{chr(65+c)}{r}"
-            numeric = c in {0, 3, 4, 5, 7, 8} and isinstance(value, (int, float))
-            cells.append(_cell(ref, value, 7 if r % 2 else 8, numeric))
+            numeric = c in {0, 3, 4, 5, 6, 8, 9} and isinstance(value, (int, float))
+            cells.append(_cell(ref, value, (11 if r % 2 else 12) if c == 4 else (7 if r % 2 else 8), numeric))
         rows.append(_row(r, cells, 24))
 
-    merges = ["A1:J1", "A2:J2", "A4:B4", "C4:E4", "F4:G4", "H4:J4", "A5:B5", "C5:E5"]
+    merges = ["A1:K1", "A2:K2", "A4:B4", "C4:E4", "F4:G4", "H4:K4", "A5:B5", "C5:E5"]
 
     sheet_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -72,8 +72,8 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
 <cols>
 <col min="1" max="1" width="5.5" customWidth="1"/><col min="2" max="2" width="20" customWidth="1"/>
 <col min="3" max="3" width="8" customWidth="1"/><col min="4" max="4" width="14" customWidth="1"/>
-<col min="5" max="5" width="9" customWidth="1"/><col min="6" max="6" width="10" customWidth="1"/><col min="7" max="7" width="13" customWidth="1"/>
-<col min="8" max="9" width="10" customWidth="1"/><col min="10" max="10" width="22" customWidth="1"/>
+<col min="5" max="5" width="14" customWidth="1"/><col min="6" max="6" width="9" customWidth="1"/><col min="7" max="7" width="10" customWidth="1"/><col min="8" max="8" width="13" customWidth="1"/>
+<col min="9" max="10" width="10" customWidth="1"/><col min="11" max="11" width="22" customWidth="1"/>
 </cols>
 <sheetData>{''.join(rows)}</sheetData>
 <mergeCells count="{len(merges)}">{''.join(f'<mergeCell ref="{m}"/>' for m in merges)}</mergeCells>
@@ -104,7 +104,7 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
 </fills>
 <borders count="2"><border/><border><left style="thin"><color rgb="FFE2E8F0"/></left><right style="thin"><color rgb="FFE2E8F0"/></right><top style="thin"><color rgb="FFE2E8F0"/></top><bottom style="thin"><color rgb="FFE2E8F0"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="11">
+<cellXfs count="13">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0"><alignment horizontal="left" vertical="center"/></xf>
 <xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0"><alignment vertical="center"/></xf>
@@ -116,6 +116,8 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
 <xf numFmtId="0" fontId="3" fillId="6" borderId="1" xfId="0"><alignment vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0"><alignment horizontal="center"/></xf>
 <xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0"><alignment horizontal="center"/></xf>
+<xf numFmtId="4" fontId="3" fillId="5" borderId="1" xfId="0" applyNumberFormat="1"><alignment vertical="center" horizontal="right"/></xf>
+<xf numFmtId="4" fontId="3" fillId="6" borderId="1" xfId="0" applyNumberFormat="1"><alignment vertical="center" horizontal="right"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>'''
@@ -642,7 +644,7 @@ def build_management_order_xlsx(data: Dict[str, Any]) -> bytes:
     """Build a print-ready Management Order Plan workbook with one sheet per Brand.
 
     v2.15: ordered items are grouped into separate Brand worksheets. Printable columns
-    are Line No., Brand, Model, Unit Cost, Inv., DoI, Stock Status, PO Bal., Order Qty,
+    are Line No., Brand, Model, Class, 3Mo Sales Qty Total, Avg. Daily Sale (Qty), Unit Cost, Inv., DoI, Stock Status, PO Bal., Order Qty,
     New DoI, Total Amount and Remarks. Column widths and key alignments follow the
     approved management print specification.
     """
@@ -673,9 +675,9 @@ def build_management_order_xlsx(data: Dict[str, Any]) -> bytes:
 
     used_names: set[str] = set()
     sheets: List[Dict[str, Any]] = []
-    widths = [10.0, 13.0, 18.0, 15.0, 9.0, 8.0, 13.0, 18.0, 12.0, 10.0, 19.0, 30.0]
+    widths = [10.0, 13.0, 18.0, 8.0, 21.0, 15.0, 15.0, 9.0, 8.0, 13.0, 18.0, 12.0, 10.0, 19.0, 30.0]
     headers = [
-        "LINE NO.", "BRAND", "MODEL", "UNIT COST", "INV.", "DoI",
+        "LINE NO.", "BRAND", "MODEL", "CLASS", "3Mo Sales Qty Total", "Avg. Daily Sale (Qty)", "UNIT COST", "INV.", "DoI",
         "STOCK STATUS", "PO BAL.", "ORDER QTY", "NEW DoI", "TOTAL AMOUNT", "REMARKS",
     ]
 
@@ -711,6 +713,9 @@ def build_management_order_xlsx(data: Dict[str, Any]) -> bytes:
                 idx,
                 item.get("brand", ""),
                 item.get("model", ""),
+                item.get("class", ""),
+                item.get("sales_3m"),
+                item.get("avg_daily_sale"),
                 float(item.get("unit_cost", 0) or 0),
                 _whole(item.get("inventory", 0)),
                 _doi_whole(item.get("doi", 0)),
@@ -724,13 +729,15 @@ def build_management_order_xlsx(data: Dict[str, Any]) -> bytes:
             cells: List[str] = []
             for c, value in enumerate(vals, 1):
                 ref = f"{_col_letter(c)}{r}"
-                if c in {1, 5, 6, 8, 9, 10}:
+                if c in {1, 5, 8, 9, 11, 12, 13}:
                     cells.append(_cell(ref, value, 7 if odd else 8, True))
-                elif c in {4, 11}:
+                elif c == 6:
+                    cells.append(_cell(ref, value, 21 if odd else 22, True))
+                elif c in {7, 14}:
                     cells.append(_cell(ref, value, 9 if odd else 10, True))
-                elif c == 7:
+                elif c == 10:
                     cells.append(_cell(ref, value, 18 if odd else 19))
-                elif c == 12:
+                elif c == 15:
                     cells.append(_cell(ref, value, 11 if odd else 12))
                 elif c == 3:
                     cells.append(_cell(ref, value, 13 if odd else 14))
@@ -743,13 +750,13 @@ def build_management_order_xlsx(data: Dict[str, Any]) -> bytes:
             rows_xml.append(_row(start, [_cell("A7", "No ordered models for this Brand.", 20)], 26))
         rows_xml.append(_row(total_row, [
             _cell(f"A{total_row}", "GRAND TOTAL", 15),
-            _cell(f"I{total_row}", _whole(order_qty_total), 16, True),
-            _cell(f"K{total_row}", amount_total, 17, True),
+            _cell(f"L{total_row}", _whole(order_qty_total), 16, True),
+            _cell(f"N{total_row}", amount_total, 17, True),
         ], 22))
 
-        merges = ["A1:L1", "A2:L2", "A4:L4", f"A{total_row}:H{total_row}"]
+        merges = ["A1:O1", "A2:O2", "A4:O4", f"A{total_row}:K{total_row}"]
         if not brand_items:
-            merges.append("A7:L7")
+            merges.append("A7:O7")
         cols_xml = "".join(f'<col min="{i}" max="{i}" width="{w}" customWidth="1"/>' for i, w in enumerate(widths, 1))
         sheet_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -788,7 +795,7 @@ def build_management_order_xlsx(data: Dict[str, Any]) -> bytes:
 </fills>
 <borders count="2"><border/><border><left style="thin"><color rgb="FFE2E8F0"/></left><right style="thin"><color rgb="FFE2E8F0"/></right><top style="thin"><color rgb="FFE2E8F0"/></top><bottom style="thin"><color rgb="FFE2E8F0"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="21">
+<cellXfs count="23">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0"><alignment horizontal="left" vertical="center"/></xf>
 <xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0"><alignment horizontal="left" vertical="center"/></xf>
@@ -810,6 +817,8 @@ def build_management_order_xlsx(data: Dict[str, Any]) -> bytes:
 <xf numFmtId="0" fontId="5" fillId="6" borderId="1" xfId="0"><alignment horizontal="center" vertical="center" shrinkToFit="1"/></xf>
 <xf numFmtId="0" fontId="5" fillId="6" borderId="1" xfId="0"><alignment horizontal="center" vertical="center" shrinkToFit="1"/></xf>
 <xf numFmtId="0" fontId="6" fillId="4" borderId="1" xfId="0"><alignment horizontal="left" vertical="center" shrinkToFit="1"/></xf>
+<xf numFmtId="4" fontId="5" fillId="4" borderId="1" xfId="0" applyNumberFormat="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="4" fontId="5" fillId="5" borderId="1" xfId="0" applyNumberFormat="1"><alignment horizontal="center" vertical="center"/></xf>
 </cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>'''
 
@@ -840,7 +849,7 @@ def build_management_order_xlsx(data: Dict[str, Any]) -> bytes:
         name_attr = escape(sh["name"], {'"': '&quot;'})
         sheet_entries.append(f'<sheet name="{name_attr}" sheetId="{i}" r:id="rId{i}"/>')
         formula_name = sh["name"].replace("'", "''")
-        defined_names.append(f'<definedName name="_xlnm.Print_Area" localSheetId="{i-1}">\'{escape(formula_name)}\'!$A$1:$L${sh["end_row"]}</definedName>')
+        defined_names.append(f'<definedName name="_xlnm.Print_Area" localSheetId="{i-1}">\'{escape(formula_name)}\'!$A$1:$O${sh["end_row"]}</definedName>')
         defined_names.append(f'<definedName name="_xlnm.Print_Titles" localSheetId="{i-1}">\'{escape(formula_name)}\'!$6:$6</definedName>')
         wb_rel_entries.append(f'<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{i}.xml"/>')
     styles_rid = len(sheets) + 1

@@ -33,7 +33,7 @@ from dashboard.cloud_state import VercelBlobState
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env")
 DATA_FILE = BASE / "data" / "MC_Dashboard_IMPORT.xlsx"
-APP_VERSION = "2.49.0"
+APP_VERSION = "2.49.2"
 IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
 
 # Vercel's deployed project filesystem is read-only except for the function's
@@ -807,10 +807,10 @@ def _management_print_html(data: dict) -> str:
         grouped.setdefault(brand, []).append(row)
 
     # Same relative widths as build_management_order_xlsx().
-    excel_widths = [10.0, 13.0, 18.0, 15.0, 9.0, 8.0, 13.0, 18.0, 12.0, 10.0, 19.0, 30.0]
+    excel_widths = [10.0, 13.0, 18.0, 8.0, 21.0, 15.0, 15.0, 9.0, 8.0, 13.0, 18.0, 12.0, 10.0, 19.0, 30.0]
     width_total = sum(excel_widths)
     widths = [f"{(w / width_total) * 100:.4f}%" for w in excel_widths]
-    headers = ["LINE NO.", "BRAND", "MODEL", "UNIT COST", "INV.", "DoI", "STOCK STATUS", "PO BAL.", "ORDER QTY", "NEW DoI", "TOTAL AMOUNT", "REMARKS"]
+    headers = ["LINE NO.", "BRAND", "MODEL", "CLASS", "3Mo Sales Qty Total", "Avg. Daily Sale (Qty)", "UNIT COST", "INV.", "DoI", "STOCK STATUS", "PO BAL.", "ORDER QTY", "NEW DoI", "TOTAL AMOUNT", "REMARKS"]
     colgroup = '<colgroup>' + ''.join(f'<col style="width:{w}">' for w in widths) + '</colgroup>'
 
     sections = []
@@ -836,6 +836,9 @@ def _management_print_html(data: dict) -> str:
                 _whole_print(idx),
                 html_escape(str(row.get("brand") or "")),
                 html_escape(str(row.get("model") or "")),
+                html_escape(str(row.get("class") or "")),
+                _whole_print(row["sales_3m"]) if row.get("sales_3m") is not None else "",
+                f'{row["avg_daily_sale"]:,.2f}' if row.get("avg_daily_sale") is not None else "",
                 _money_print(row.get("unit_cost", 0)),
                 _whole_print(row.get("inventory", 0)),
                 _doi_print(row.get("doi", 0)),
@@ -847,7 +850,7 @@ def _management_print_html(data: dict) -> str:
                 html_escape(str(row.get("remarks") or "")),
             ]
             aligns = [
-                "text-center", "text-left", "text-left", "text-right",
+                "text-center", "text-left", "text-left", "text-center", "text-center", "text-center", "text-right",
                 "text-center", "text-center", "status-cell", "text-center",
                 "text-center", "text-center", "text-right", "text-left remarks-cell",
             ]
@@ -860,7 +863,7 @@ def _management_print_html(data: dict) -> str:
 
         total_row = (
             f'<tr class="grand-total">'
-            f'<td colspan="8" class="grand-label">GRAND TOTAL</td>'
+            f'<td colspan="11" class="grand-label">GRAND TOTAL</td>'
             f'<td class="grand-qty">{_whole_print(qty_total)}</td>'
             f'<td class="grand-blank"></td>'
             f'<td class="grand-amount">{_money_print(amount_total)}</td>'
@@ -1280,10 +1283,10 @@ def _branch_request_print_html(branch: str, area: str, items: list) -> str:
     # Direct print uses the same worksheet structure as build_branch_request_xlsx(),
     # except the requested print-only simplifications: date only and no signature block.
     generated = _now_local().strftime("%d %b %Y")
-    headers = ["NO.", "MODEL", "CLASS", "3 MONTHS SALES (QTY)", "INVENTORY", "REQUEST QTY", "STOCK STATUS", "CURRENT DoI", "NEW DoI", "REMARKS"]
+    headers = ["NO.", "MODEL", "CLASS", "3 MONTHS SALES (QTY)", "Avg. Daily Sale (Qty)", "INVENTORY", "REQUEST QTY", "STOCK STATUS", "CURRENT DoI", "NEW DoI", "REMARKS"]
 
     # Same relative widths as the downloadable Excel workbook.
-    excel_widths = [5.5, 20.0, 8.0, 14.0, 9.0, 10.0, 13.0, 10.0, 10.0, 22.0]
+    excel_widths = [5.5, 20.0, 8.0, 14.0, 14.0, 9.0, 10.0, 13.0, 10.0, 10.0, 22.0]
     width_total = sum(excel_widths)
     widths = [f"{(w / width_total) * 100:.4f}%" for w in excel_widths]
     colgroup = '<colgroup>' + ''.join(f'<col style="width:{w}">' for w in widths) + '</colgroup>'
@@ -1296,6 +1299,7 @@ def _branch_request_print_html(branch: str, area: str, items: list) -> str:
             html_escape(str(item.get("model") or "")),
             html_escape(str(item.get("class") or "")),
             _whole_print(item["sales_3m"]) if item.get("sales_3m") is not None else "",
+            f'{item["avg_daily_sale"]:,.2f}' if item.get("avg_daily_sale") is not None else "",
             _whole_print(item.get("inventory", 0)),
             _whole_print(item.get("requested_qty", 0)),
             html_escape(str(item.get("stock_status") or "")),
@@ -1304,7 +1308,7 @@ def _branch_request_print_html(branch: str, area: str, items: list) -> str:
             html_escape(str(item.get("remarks") or "")),
         ]
         aligns = [
-            "text-right", "text-left", "text-left", "text-right", "text-right", "text-right",
+            "text-right", "text-left", "text-left", "text-right", "text-right", "text-right", "text-right",
             "text-left", "text-right", "text-right", "text-left wrap",
         ]
         parity = " even" if idx % 2 == 0 else ""
@@ -1320,12 +1324,12 @@ def _branch_request_print_html(branch: str, area: str, items: list) -> str:
 <td colspan="2" class="meta-label">REQUESTING BRANCH</td>
 <td colspan="3" class="meta-value">{html_escape(branch)}</td>
 <td colspan="2" class="meta-label">REPORT GENERATED</td>
-<td colspan="3" class="meta-value">{html_escape(generated)}</td>
+<td colspan="4" class="meta-value">{html_escape(generated)}</td>
 </tr>
 <tr>
 <td colspan="2" class="meta-label">AREA</td>
 <td colspan="3" class="meta-value">{html_escape(area)}</td>
-<td colspan="5" style="background:#fff;border:0"></td>
+<td colspan="6" style="background:#fff;border:0"></td>
 </tr>
 </tbody></table>'''
     header_html = ''.join(f'<th>{html_escape(h)}</th>' for h in headers)

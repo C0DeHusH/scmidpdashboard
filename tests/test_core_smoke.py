@@ -48,6 +48,11 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn('id="simBrand"', template)
         self.assertIn('id="simModelDropdown"', template)
         self.assertIn('id="managementModelDropdown"', template)
+        self.assertEqual(template.count('role="combobox"'), 2)
+        self.assertNotIn('<select id="managementModelDropdown"', template)
+        self.assertNotIn('<select id="simModelDropdown"', template)
+        self.assertIn("initModelCombo", js)
+        self.assertIn("minimumFractionDigits:2,maximumFractionDigits:2", js)
         self.assertIn('id="simModel"', template)
         self.assertIn('id="managementModelFilter"', template)
         self.assertIn('refreshSimDropdown', js)
@@ -88,17 +93,67 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         from dashboard.xlsx_export import build_branch_request_xlsx
         payload = [{
             "model": "TEST MODEL", "class": "Class A", "inventory": 2, "requested_qty": 1,
-            "stock_status": "Re-order", "doi": 10, "new_doi": 15, "remarks": "Test", "sales_3m": 27,
+            "stock_status": "Re-order", "doi": 10, "new_doi": 15, "remarks": "Test", "sales_3m": 27, "avg_daily_sale": 0.312345,
         }]
         wb = load_workbook(BytesIO(build_branch_request_xlsx("TEST BRANCH", "AREA I", payload)), data_only=True)
         ws = wb.active
         self.assertEqual(ws["D7"].value, "3 MONTHS SALES (QTY)")
         self.assertEqual(ws["D8"].value, 27)
+        self.assertEqual(ws["E7"].value, "Avg. Daily Sale (Qty)")
+        self.assertEqual(ws["E8"].value, 0.312345)
+        self.assertEqual(ws["E8"].number_format, "#,##0.00")
         generated = str(ws["H4"].value or "")
         self.assertNotIn(":", generated)
         values = [str(cell.value or "") for row in ws.iter_rows() for cell in row]
         self.assertFalse(any("Reviewed" in value for value in values))
         self.assertFalse(any("Approved By" in value for value in values))
+
+    def test_management_export_imported_three_month_sales(self):
+        from dashboard.xlsx_export import build_management_order_xlsx
+        store = DashboardStore(WORKBOOK)
+        source = load_workbook(WORKBOOK, read_only=True, data_only=True)
+        sheet = source[store.management_sheet_name]
+        source_rows = sheet.iter_rows(values_only=True)
+        for row in source_rows:
+            if "3Mo Sales Qty Total" in row and "Standard Description" in row:
+                h = list(row)
+                break
+        expected = {(str(r[h.index("Brand")] or "Unspecified").strip(), str(r[h.index("Standard Description")] or "").strip()): r[h.index("3Mo Sales Qty Total")] for r in source_rows if r[h.index("Standard Description")]}
+        source.close()
+        data = store.management_dashboard()
+        rows = data["rows"]
+        self.assertTrue(rows)
+        for r in rows:
+            self.assertEqual(r["sales_3m"], expected[(r["brand"], r["model"])])
+            r["allocation"] = 2
+            r["total_amount"] = 2 * r["unit_cost"]
+        wb = load_workbook(BytesIO(build_management_order_xlsx(data)), data_only=True)
+        actual_count = 0
+        by_model = {(r["brand"], r["model"]): r for r in rows}
+        for ws in wb:
+            self.assertEqual(ws["D6"].value, "CLASS")
+            self.assertEqual(ws["E6"].value, "3Mo Sales Qty Total")
+            self.assertEqual(ws["F6"].value, "Avg. Daily Sale (Qty)")
+            self.assertEqual(ws["L6"].value, "ORDER QTY")
+            self.assertEqual(ws["N6"].value, "TOTAL AMOUNT")
+            for r in ws.iter_rows(min_row=7, max_row=ws.max_row-1, values_only=True):
+                self.assertEqual(r[4], expected[(r[1], r[2])])
+                original = by_model[(r[1], r[2])]
+                self.assertEqual(r[3] or "", original["class"] or "")
+                self.assertAlmostEqual(r[5], original["avg_daily_sale"])
+                self.assertEqual(r[11], 2)
+                actual_count += 1
+            self.assertEqual(ws.cell(ws.max_row, 12).value, 2 * (ws.max_row-7))
+            self.assertAlmostEqual(ws.cell(ws.max_row, 14).value, sum(ws.cell(i, 14).value for i in range(7, ws.max_row)))
+            self.assertIn("$O$", str(ws.print_area))
+            self.assertEqual(ws["F7"].number_format, "#,##0.00")
+        self.assertEqual(actual_count, len(rows))
+        sample = {"rows": [{"brand": "Test", "model": "Missing", "sales_3m": None}, {"brand": "Test", "model": "Zero", "sales_3m": 0}]}
+        ws = load_workbook(BytesIO(build_management_order_xlsx(sample)), data_only=True).active
+        self.assertIsNone(ws["E7"].value)
+        self.assertEqual(ws["E8"].value, 0)
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("3Mo Sales Qty Total</th>", template)
 
     def test_empty_kpi_series_are_not_shared(self):
         kpis = DashboardStore._empty_kpis()
@@ -693,8 +748,8 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         management_section = app_source[app_source.index("def _management_print_html"):app_source.index('@app.post("/admin/export/management")')]
         self.assertIn('strftime("%d %b %Y")', branch_section)
         self.assertNotIn('%I:%M %p', branch_section)
-        self.assertIn('excel_widths = [5.5, 20.0, 8.0, 14.0, 9.0, 10.0, 13.0, 10.0, 10.0, 22.0]', branch_section)
-        self.assertIn('excel_widths = [10.0, 13.0, 18.0, 15.0, 9.0, 8.0, 13.0, 18.0, 12.0, 10.0, 19.0, 30.0]', management_section)
+        self.assertIn('excel_widths = [5.5, 20.0, 8.0, 14.0, 14.0, 9.0, 10.0, 13.0, 10.0, 10.0, 22.0]', branch_section)
+        self.assertIn('excel_widths = [10.0, 13.0, 18.0, 8.0, 21.0, 15.0, 15.0, 9.0, 8.0, 13.0, 18.0, 12.0, 10.0, 19.0, 30.0]', management_section)
         self.assertIn('orientation="portrait"', management_section)
         self.assertIn('page_margin=".08in"', management_section)
         self.assertIn('grand-blank', management_section)
