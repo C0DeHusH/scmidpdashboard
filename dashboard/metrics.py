@@ -41,6 +41,17 @@ def _num(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _sales_qty(value: Any) -> Optional[float]:
+    """Imported three-month unit sales; missing or invalid values remain unknown."""
+    if value is None or value == "":
+        return None
+    try:
+        n = float(value)
+        return n if math.isfinite(n) else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _clean(value: Any) -> str:
     return "" if value is None else str(value).strip()
 
@@ -334,6 +345,7 @@ class DashboardStore:
                 "class_label": _clean(get(row, "CLASS")),
                 "brand": _clean(get(row, "BRAND")),
                 "avg_daily_sale": _num(get(row, "Avg. Daily Sale (Qty)")),
+                "sales_3m": _sales_qty(get(row, "3Mo Sales Qty Total")),
                 "inventory": _num(get(row, "Inv. Qty Total")),
                 "doi": _ceil_doi(get(row, "DoI (Branch)")),
                 "stock_status": _clean(get(row, "Stock Status (branch)")),
@@ -378,6 +390,7 @@ class DashboardStore:
                 "brand": brand or "Unspecified",
                 "unit_cost": _num(get(row, "Cost")),
                 "avg_daily_sale": _num(get(row, "Avg. Daily Sale (Qty)")),
+                "sales_3m": _sales_qty(get(row, "3Mo Sales Qty Total")),
                 "inventory": _num(get(row, "Inv. Qty Total")),
                 "doi": _ceil_doi(get(row, "DoI")),
                 "stock_status": _clean(get(row, "Stock Status")),
@@ -438,6 +451,14 @@ class DashboardStore:
         all_brands = sorted({r["brand"] for r in effective if r["brand"]})
         model_scope = [r for r in effective if not brand or brand == "All Brands" or r["brand"] == brand]
         all_models = sorted({r["model"] for r in model_scope if r["model"]})
+        model_options = sorted(({
+            "model": r["model"], "brand": r["brand"], "class": r["class"],
+            "sales_3m": r.get("sales_3m"), "key": r["key"],
+        } for r in model_scope
+            if (not class_key or class_key == "All Classes" or r["class"] == class_key)
+            and (not status or status == "All Statuses" or r["stock_status"].lower() == status.lower())),
+            key=lambda r: (r["model"].casefold(), r["brand"]))
+        exact_model = any(r["model"].casefold() == model.casefold() for r in model_options) if model else False
         all_statuses = sorted({r["stock_status"] for r in effective if r["stock_status"]})
 
         def matches(r: Dict[str, Any]) -> bool:
@@ -447,7 +468,7 @@ class DashboardStore:
                 return False
             if status and status != "All Statuses" and r["stock_status"].lower() != status.lower():
                 return False
-            if model and model != "All Models" and model.lower() not in r["model"].lower():
+            if model and model != "All Models" and (model.casefold() != r["model"].casefold() if exact_model else model.casefold() not in r["model"].casefold()):
                 return False
             return True
 
@@ -470,6 +491,7 @@ class DashboardStore:
                 "classes": ["All Classes", "A", "B", "C"],
                 "statuses": ["All Statuses"] + all_statuses,
                 "models": ["All Models"] + all_models,
+                "model_options": model_options,
             },
             "summary": summary,
             "rows": rows,
@@ -650,6 +672,8 @@ class DashboardStore:
                 "class_a": bs["class_rates"]["A"],
                 "overall_avg": bs["overall_avg"],
                 "class_a_counts": bs["counts"]["A"],
+                "class_rates": bs["class_rates"],
+                "counts": bs["counts"],
             })
         branch_class_a.sort(key=lambda x: (-x["class_a"], x["branch"]))
 
@@ -658,6 +682,14 @@ class DashboardStore:
             "summary": self._summary(filtered),
             "ranking": ranking,
             "branch_class_a": branch_class_a,
+            "model_details": sorted(({
+                "branch": r["branch"], "brand": r["brand"], "model": r["model"],
+                "class": r["class"], "rank": r["rank"], "stock_status": r["stock_status"],
+                "is_stockout": _is_stockout(r["stock_status"]), "inventory": r["inventory"],
+                "doi": r["doi"], "sales_3m": r.get("sales_3m"),
+            } for r in filtered if r["class"] in ("A", "B", "C")),
+                key=lambda r: (r["branch"], r["class"], not r["is_stockout"], r["rank"], r["model"]))
+                if area and area != "Overall" else [],
         }
 
     def branch_dashboard(self, branch: Optional[str] = None) -> Dict[str, Any]:
@@ -715,6 +747,7 @@ class DashboardStore:
             "suggested_transfer": round(r["suggested_transfer"], 3),
             "doi": _ceil_doi(r["doi"]),
             "avg_daily_sale": round(r["avg_daily_sale"], 6),
+            "sales_3m": r.get("sales_3m"),
         }
 
     def branch_model_catalog(self, branch: str, brand: str = "All Brands") -> Dict[str, Any]:

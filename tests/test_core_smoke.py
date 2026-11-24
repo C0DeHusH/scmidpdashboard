@@ -46,12 +46,12 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertNotIn('id="printManagementBtn"', template)
         self.assertNotIn('id="printRequest"', template)
         self.assertIn('id="simBrand"', template)
-        self.assertIn('list="simModelOptions"', template)
-        self.assertIn('list="managementModelOptions"', template)
-        self.assertNotIn('id="simModelDropdown"', template)
-        self.assertNotIn('id="managementModelDropdown"', template)
-        self.assertNotIn('simModelDropdown', js)
-        self.assertNotIn('managementModelDropdown', js)
+        self.assertIn('id="simModelDropdown"', template)
+        self.assertIn('id="managementModelDropdown"', template)
+        self.assertIn('id="simModel"', template)
+        self.assertIn('id="managementModelFilter"', template)
+        self.assertIn('refreshSimDropdown', js)
+        self.assertIn('refreshManagementDropdown', js)
         self.assertIn("brand=${encodeURIComponent(brand)}", js)
 
         store = DashboardStore(WORKBOOK)
@@ -88,10 +88,12 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         from dashboard.xlsx_export import build_branch_request_xlsx
         payload = [{
             "model": "TEST MODEL", "class": "Class A", "inventory": 2, "requested_qty": 1,
-            "stock_status": "Re-order", "doi": 10, "new_doi": 15, "remarks": "Test",
+            "stock_status": "Re-order", "doi": 10, "new_doi": 15, "remarks": "Test", "sales_3m": 27,
         }]
         wb = load_workbook(BytesIO(build_branch_request_xlsx("TEST BRANCH", "AREA I", payload)), data_only=True)
         ws = wb.active
+        self.assertEqual(ws["D7"].value, "3 MONTHS SALES (QTY)")
+        self.assertEqual(ws["D8"].value, 27)
         generated = str(ws["H4"].value or "")
         self.assertNotIn(":", generated)
         values = [str(cell.value or "") for row in ws.iter_rows() for cell in row]
@@ -150,19 +152,37 @@ class DashboardCoreSmokeTests(unittest.TestCase):
             self.assertEqual(reloaded.allocations[0]["quantity"], 1.0)
 
 
-    def test_delivery_redesign_keeps_required_control_ids(self):
+    def test_delivery_workspace_retired(self):
         template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
-        required = [
-            "deliveryTab", "deliveryDayFilter", "deliverySummaryCards", "deliveryWeekRibbon",
-            "saveDeliveryPlanBtn", "exportDeliveryBtn", "clearDeliveryBoardBtn", "openDeliveryMasterBtn",
-            "scheduleTripCount", "toggleScheduleBtn", "weeklyScheduleBody", "scheduleRows",
-            "allocationCount", "toggleAllocationBtn", "allocationImportBody", "deliveryImportFile",
-            "deliveryPlanPulse", "deliveryTruckGrid", "deliveryUnassigned", "deliveryPriorityList",
-        ]
-        for element_id in required:
-            self.assertEqual(template.count(f'id="{element_id}"'), 1, element_id)
-        self.assertIn("DELIVERY OPERATIONS CENTER", template)
-        self.assertIn("Branch Dispatch Sequence", template)
+        aging = (ROOT / "templates" / "aging" / "base.html").read_text(encoding="utf-8")
+        js = (ROOT / "static" / "js" / "dashboard-app.js").read_text(encoding="utf-8")
+        self.assertNotIn('id="deliveryTab"', template)
+        self.assertNotIn('data-tab="delivery"', template)
+        self.assertNotIn('tab=delivery', aging)
+        self.assertNotIn('loadDelivery(', js)
+
+    def test_area_drilldown_reconciles_and_sales_import(self):
+        store = DashboardStore(WORKBOOK)
+        area = store.areas[0]
+        data = store.area_dashboard(area)
+        self.assertTrue(data['model_details'])
+        self.assertEqual({r['branch'] for r in data['model_details']} - {r['branch'] for r in data['branch_class_a']}, set())
+        for cls in 'ABC':
+            rows = [r for r in data['model_details'] if r['class'] == cls and r['stock_status']]
+            self.assertEqual(sum(r['is_stockout'] for r in rows), data['summary']['counts'][cls]['stockout'])
+            self.assertEqual(len(rows), data['summary']['counts'][cls]['status_count'])
+        self.assertEqual(store.area_dashboard()['model_details'], [])
+        raw = next(r for r in store.raw_records if r['sales_3m'] is not None)
+        lookup = store.model_lookup(raw['branch'], raw['model'], raw['brand'])
+        self.assertEqual(lookup['sales_3m'], raw['sales_3m'])
+        management = store.management_dashboard()
+        options = {r['key']:r for r in management['filters']['model_options']}
+        for row in management['rows']:
+            self.assertEqual(options[row['key']]['sales_3m'], row['sales_3m'])
+            self.assertEqual(options[row['key']]['class'], row['class'])
+        first = management['rows'][0]
+        result = store.management_dashboard(brand=first['brand'], model=first['model'])
+        self.assertTrue(all(r['model'] == first['model'] for r in result['rows']))
 
     def test_model_aging_summary_has_professional_sort_controls(self):
         template = (ROOT / "templates" / "aging" / "_results_region.html").read_text(encoding="utf-8")
@@ -201,7 +221,7 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn("verifyAdminSession()", js)
         self.assertIn("/admin/export/management", js)
         self.assertIn("/admin/export/request", js)
-        self.assertIn("/admin/delivery/plan", js)
+        self.assertNotIn("/admin/delivery/plan", js)
         self.assertNotIn("window.location=`/admin/export/delivery", js)
         self.assertIn("credentials: 'same-origin'", aging_js)
         self.assertIn("xhr.withCredentials=true", unified_js)
@@ -624,11 +644,11 @@ class DashboardCoreSmokeTests(unittest.TestCase):
 
     def test_main_dashboard_filters_are_component_scoped(self):
         js = (ROOT / "static" / "js" / "dashboard-app.js").read_text(encoding="utf-8")
-        self.assertIn("$('#areaFilter').onchange=async e=>{try{const d=await fetchJson('/api/area", js)
+        self.assertIn("$('#areaFilter').onchange=e=>selectArea(e.target.value)", js)
         self.assertIn("$('#branchFilter').onchange=async e=>{try{const d=await fetchJson('/api/branch", js)
         self.assertIn(".forEach(sel=>$(sel).onchange=loadStatusSummary)", js)
         self.assertIn(".forEach(sel=>$(sel).onchange=loadManagement)", js)
-        self.assertIn("$('#deliveryDayFilter').onchange=async e=>await loadDelivery", js)
+        self.assertNotIn("$('#deliveryDayFilter')", js)
         # Page navigation remains reserved for explicit actions such as logout/clear-data, not filtering.
         self.assertNotIn("location.reload()", js[js.index("$('#periodFilter').onchange"):js.index("const clearDataModal")])
 
@@ -673,7 +693,7 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         management_section = app_source[app_source.index("def _management_print_html"):app_source.index('@app.post("/admin/export/management")')]
         self.assertIn('strftime("%d %b %Y")', branch_section)
         self.assertNotIn('%I:%M %p', branch_section)
-        self.assertIn('excel_widths = [5.5, 20.0, 8.0, 9.0, 10.0, 13.0, 10.0, 10.0, 22.0]', branch_section)
+        self.assertIn('excel_widths = [5.5, 20.0, 8.0, 14.0, 9.0, 10.0, 13.0, 10.0, 10.0, 22.0]', branch_section)
         self.assertIn('excel_widths = [10.0, 13.0, 18.0, 15.0, 9.0, 8.0, 13.0, 18.0, 12.0, 10.0, 19.0, 30.0]', management_section)
         self.assertIn('orientation="portrait"', management_section)
         self.assertIn('page_margin=".08in"', management_section)

@@ -33,7 +33,7 @@ from dashboard.cloud_state import VercelBlobState
 BASE = Path(__file__).resolve().parent
 load_dotenv(BASE / ".env")
 DATA_FILE = BASE / "data" / "MC_Dashboard_IMPORT.xlsx"
-APP_VERSION = "2.48.6"
+APP_VERSION = "2.49.0"
 IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
 
 # Vercel's deployed project filesystem is read-only except for the function's
@@ -367,6 +367,8 @@ def _bind_vercel_oidc_and_hydrate_runtime():
     time. The first request performs hydration once per warm Python process.
     """
     global _cloud_runtime_hydrated, _cloud_runtime_error, _management_allocations_cache
+    if request.path.startswith(("/api/delivery", "/delivery/", "/admin/delivery/")) or request.path == "/admin/export/delivery":
+        return jsonify({"error": "Delivery Plan has been retired."}), 404
     if not IS_VERCEL:
         return None
 
@@ -1278,10 +1280,10 @@ def _branch_request_print_html(branch: str, area: str, items: list) -> str:
     # Direct print uses the same worksheet structure as build_branch_request_xlsx(),
     # except the requested print-only simplifications: date only and no signature block.
     generated = _now_local().strftime("%d %b %Y")
-    headers = ["NO.", "MODEL", "CLASS", "INVENTORY", "REQUEST QTY", "STOCK STATUS", "CURRENT DoI", "NEW DoI", "REMARKS"]
+    headers = ["NO.", "MODEL", "CLASS", "3 MONTHS SALES (QTY)", "INVENTORY", "REQUEST QTY", "STOCK STATUS", "CURRENT DoI", "NEW DoI", "REMARKS"]
 
     # Same relative widths as the downloadable Excel workbook.
-    excel_widths = [5.5, 20.0, 8.0, 9.0, 10.0, 13.0, 10.0, 10.0, 22.0]
+    excel_widths = [5.5, 20.0, 8.0, 14.0, 9.0, 10.0, 13.0, 10.0, 10.0, 22.0]
     width_total = sum(excel_widths)
     widths = [f"{(w / width_total) * 100:.4f}%" for w in excel_widths]
     colgroup = '<colgroup>' + ''.join(f'<col style="width:{w}">' for w in widths) + '</colgroup>'
@@ -1293,6 +1295,7 @@ def _branch_request_print_html(branch: str, area: str, items: list) -> str:
             _whole_print(idx),
             html_escape(str(item.get("model") or "")),
             html_escape(str(item.get("class") or "")),
+            _whole_print(item["sales_3m"]) if item.get("sales_3m") is not None else "",
             _whole_print(item.get("inventory", 0)),
             _whole_print(item.get("requested_qty", 0)),
             html_escape(str(item.get("stock_status") or "")),
@@ -1301,7 +1304,7 @@ def _branch_request_print_html(branch: str, area: str, items: list) -> str:
             html_escape(str(item.get("remarks") or "")),
         ]
         aligns = [
-            "text-right", "text-left", "text-left", "text-right", "text-right",
+            "text-right", "text-left", "text-left", "text-right", "text-right", "text-right",
             "text-left", "text-right", "text-right", "text-left wrap",
         ]
         parity = " even" if idx % 2 == 0 else ""
@@ -1317,12 +1320,12 @@ def _branch_request_print_html(branch: str, area: str, items: list) -> str:
 <td colspan="2" class="meta-label">REQUESTING BRANCH</td>
 <td colspan="3" class="meta-value">{html_escape(branch)}</td>
 <td colspan="2" class="meta-label">REPORT GENERATED</td>
-<td colspan="2" class="meta-value">{html_escape(generated)}</td>
+<td colspan="3" class="meta-value">{html_escape(generated)}</td>
 </tr>
 <tr>
 <td colspan="2" class="meta-label">AREA</td>
 <td colspan="3" class="meta-value">{html_escape(area)}</td>
-<td colspan="4" style="background:#fff;border:0"></td>
+<td colspan="5" style="background:#fff;border:0"></td>
 </tr>
 </tbody></table>'''
     header_html = ''.join(f'<th>{html_escape(h)}</th>' for h in headers)

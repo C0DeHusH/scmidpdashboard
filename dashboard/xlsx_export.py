@@ -46,24 +46,24 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
     rows.append(_row(5, [_cell("A5", "AREA", 3), _cell("C5", area, 4)], 18))
     rows.append(_row(6, [], 8))
 
-    headers = ["NO.", "MODEL", "CLASS", "INVENTORY", "REQUEST QTY", "STOCK STATUS", "CURRENT DoI", "NEW DoI", "REMARKS"]
-    rows.append(_row(7, [_cell(f"{chr(65+i)}7", h, 6) for i, h in enumerate(headers)], 22))
+    headers = ["NO.", "MODEL", "CLASS", "3 MONTHS SALES (QTY)", "INVENTORY", "REQUEST QTY", "STOCK STATUS", "CURRENT DoI", "NEW DoI", "REMARKS"]
+    rows.append(_row(7, [_cell(f"{chr(65+i)}7", h, 6) for i, h in enumerate(headers)], 32))
     start = 8
     for idx, item in enumerate(items, 1):
         r = start + idx - 1
         vals = [
-            idx, item.get("model", ""), item.get("class", ""), _whole(item.get("inventory", 0)),
+            idx, item.get("model", ""), item.get("class", ""), item.get("sales_3m"), _whole(item.get("inventory", 0)),
             _whole(item.get("requested_qty", 0)), item.get("stock_status", ""), _doi_whole(item.get("doi", 0)),
             _doi_whole(item.get("new_doi", "N/A")), item.get("remarks", ""),
         ]
         cells = []
         for c, value in enumerate(vals):
             ref = f"{chr(65+c)}{r}"
-            numeric = c in {0, 3, 4, 6, 7} and isinstance(value, (int, float))
+            numeric = c in {0, 3, 4, 5, 7, 8} and isinstance(value, (int, float))
             cells.append(_cell(ref, value, 7 if r % 2 else 8, numeric))
         rows.append(_row(r, cells, 24))
 
-    merges = ["A1:I1", "A2:I2", "A4:B4", "C4:E4", "F4:G4", "H4:I4", "A5:B5", "C5:E5"]
+    merges = ["A1:J1", "A2:J2", "A4:B4", "C4:E4", "F4:G4", "H4:J4", "A5:B5", "C5:E5"]
 
     sheet_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -71,9 +71,9 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
 <sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>
 <cols>
 <col min="1" max="1" width="5.5" customWidth="1"/><col min="2" max="2" width="20" customWidth="1"/>
-<col min="3" max="3" width="8" customWidth="1"/><col min="4" max="4" width="9" customWidth="1"/>
-<col min="5" max="5" width="10" customWidth="1"/><col min="6" max="6" width="13" customWidth="1"/>
-<col min="7" max="8" width="10" customWidth="1"/><col min="9" max="9" width="22" customWidth="1"/>
+<col min="3" max="3" width="8" customWidth="1"/><col min="4" max="4" width="14" customWidth="1"/>
+<col min="5" max="5" width="9" customWidth="1"/><col min="6" max="6" width="10" customWidth="1"/><col min="7" max="7" width="13" customWidth="1"/>
+<col min="8" max="9" width="10" customWidth="1"/><col min="10" max="10" width="22" customWidth="1"/>
 </cols>
 <sheetData>{''.join(rows)}</sheetData>
 <mergeCells count="{len(merges)}">{''.join(f'<mergeCell ref="{m}"/>' for m in merges)}</mergeCells>
@@ -140,7 +140,7 @@ def build_branch_request_xlsx(branch: str, area: str, items: List[Dict[str, Any]
     wb_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheets><sheet name="Branch Request" sheetId="1" r:id="rId1"/></sheets>
-<definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">'Branch Request'!$A$1:$I${last_row}</definedName><definedName name="_xlnm.Print_Titles" localSheetId="0">'Branch Request'!$7:$7</definedName></definedNames>
+<definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">'Branch Request'!$A$1:$J${last_row}</definedName><definedName name="_xlnm.Print_Titles" localSheetId="0">'Branch Request'!$7:$7</definedName></definedNames>
 </workbook>'''
     wb_rels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">

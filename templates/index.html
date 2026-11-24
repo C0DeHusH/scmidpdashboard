@@ -41,7 +41,6 @@
         <button class="mainTab sidebar-nav-item tab-active" data-tab="dashboard" title="Executive Dashboard"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span class="sidebar-label">Executive Dashboard</span></button>
         <button class="mainTab sidebar-nav-item" data-tab="management" title="Management Order Plan"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M8 4h8M9 2h6a1 1 0 0 1 1 1v3H8V3a1 1 0 0 1 1-1Z"/><rect x="5" y="5" width="14" height="16" rx="2"/><path d="M8 10h8M8 14h5M8 18h3"/></svg></span><span class="sidebar-label">Management Order Plan</span></button>
         <button class="mainTab sidebar-nav-item" data-tab="simulator" title="Branch Request Simulator"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3M17 17H6l3 3"/><path d="M18 7l-3 3M6 17l3-3"/></svg></span><span class="sidebar-label">Branch Request Simulator</span></button>
-        <button class="mainTab sidebar-nav-item" data-tab="delivery" title="Delivery Plan"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M3 7h11v10H3zM14 10h4l3 3v4h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg></span><span class="sidebar-label">Delivery Plan</span></button>
         <a href="/aging/" class="sidebar-nav-item" title="Motorcycle Aging Dashboard"><span class="sidebar-icon"><svg viewBox="0 0 24 24"><path d="M5 17h14M7 17l1-5h8l1 5"/><circle cx="8" cy="18" r="2"/><circle cx="16" cy="18" r="2"/><path d="M9 12l1-3h4l1 3"/></svg></span><span class="sidebar-label">Motorcycle Aging</span></a>
       </nav>
     </div>
@@ -130,11 +129,23 @@
 </section>
 
 <section class="glass rounded-2xl border p-4 sm:p-5">
-<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 class="text-lg font-bold">Area Performance</h2><p class="text-xs text-slate-500">Identify Areas and Branches with the highest stock-out exposure. Use the Area filter to focus corrective action and Class A service risk.</p></div><select id="areaFilter" class="w-full rounded-xl border px-3 py-2 text-xs sm:w-[220px]"></select></div>
+<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 class="text-lg font-bold">Area Performance</h2><p class="text-xs text-slate-500">Identify Areas and Branches with the highest stock-out exposure. Click an area in the ranking to review its branches, Class A / B / C models and stock status.</p></div><select id="areaFilter" class="w-full rounded-xl border px-3 py-2 text-xs sm:w-[220px]"></select></div>
 <div id="areaCards" class="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4"></div>
 <div class="mt-5 grid gap-5 xl:grid-cols-2">
 <div><h3 class="text-xs font-black tracking-widest text-blue-400">AREA AVERAGE STOCK-OUT · HIGHEST TO LOWEST</h3><div id="areaRanking" class="mt-3 max-h-[460px] space-y-2 overflow-auto pr-1 scrollbar"></div></div>
 <div><h3 class="text-xs font-black tracking-widest text-blue-400">BRANCH CLASS A STOCK-OUT RATE</h3><p id="branchClassAScope" class="mt-1 text-[10px] text-slate-500"></p><div id="branchClassARanking" class="mt-3 max-h-[460px] space-y-2 overflow-auto pr-1 scrollbar"></div></div>
+</div>
+<div id="areaDrilldown" class="hidden mt-5 border-t border-slate-800 pt-5">
+  <div class="flex flex-wrap items-center justify-between gap-2"><div><h3 id="areaDetailTitle" class="text-lg font-black"></h3><p class="mt-1 text-xs text-slate-500">Branch-level class exposure and individual model stock status.</p></div><button id="areaDetailClose" type="button" class="rounded-xl border px-3 py-2 text-xs font-bold">Clear Area</button></div>
+  <div class="mt-3 max-h-[300px] overflow-auto scrollbar"><table class="w-full min-w-[660px] text-left text-xs"><thead class="sticky top-0 bg-[var(--surface)] text-slate-500"><tr><th class="p-2">Branch (click to filter)</th><th>Class A</th><th>Class B</th><th>Class C</th><th>Overall Avg</th></tr></thead><tbody id="areaBranchRows"></tbody></table></div>
+  <div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+    <label class="text-xs font-bold">Branch<select id="areaDetailBranch" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"></select></label>
+    <label class="text-xs font-bold">Class<select id="areaDetailClass" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"><option value="">All Classes</option><option>A</option><option>B</option><option>C</option></select></label>
+    <label class="text-xs font-bold">Stock Status<select id="areaDetailStatus" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"><option value="">All Statuses</option><option value="stockout">Stock-out only</option><option value="other">Other recorded statuses</option><option value="missing">No recorded status</option></select></label>
+    <label class="text-xs font-bold">Search Model<input id="areaDetailSearch" type="search" placeholder="Model or brand…" class="mt-1 w-full rounded-xl border px-3 py-2 text-xs"></label>
+  </div>
+  <p id="areaDetailCount" class="mt-3 text-xs font-bold text-blue-400" aria-live="polite"></p>
+  <div class="mt-2 max-h-[520px] overflow-auto scrollbar"><table class="w-full min-w-[850px] text-left text-xs"><thead class="sticky top-0 bg-[var(--surface)] text-slate-500"><tr><th class="p-2">Branch</th><th>Class</th><th>Rank</th><th>Brand</th><th>Model</th><th>Stock Status</th><th>Inventory</th><th>DoI</th><th>3 Months Sales (Qty)</th></tr></thead><tbody id="areaDetailRows"></tbody></table></div>
 </div></section>
 
 <section class="glass rounded-2xl border p-4 sm:p-5">
@@ -192,7 +203,7 @@
     <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Brand<select id="managementBrandFilter" class="mt-1 w-full rounded-xl border px-3 py-2.5 text-xs"></select></label>
     <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Class<select id="managementClassFilter" class="mt-1 w-full rounded-xl border px-3 py-2.5 text-xs"></select></label>
     <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Stock Status<select id="managementStatusFilter" class="mt-1 w-full rounded-xl border px-3 py-2.5 text-xs"></select></label>
-    <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Model<input id="managementModelFilter" list="managementModelOptions" type="search" autocomplete="off" placeholder="All Models — type or open list" class="mt-1 w-full rounded-xl border px-3 py-2.5 text-xs"><datalist id="managementModelOptions"></datalist></label>
+    <label class="text-[10px] font-black uppercase tracking-wider text-slate-500">Model<input id="managementModelFilter" type="search" autocomplete="off" placeholder="Type to search models…" class="mt-1 w-full rounded-xl border px-3 py-2.5 text-xs"><select id="managementModelDropdown" aria-label="Choose model, class and three-month sales" class="mt-2 w-full rounded-xl border px-3 py-2.5 text-xs"><option value="">All Models</option></select></label>
   </div>
   <div id="managementCards" class="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5"></div>
 </section>
@@ -221,111 +232,12 @@
 <main id="simulatorTab" class="mt-4 hidden">
 <section class="simulator-layout">
 <div class="simulator-panel glass rounded-2xl border p-4 sm:p-5"><div class="flex items-center justify-between"><div><h2 class="text-lg font-bold">Request Builder</h2><p class="text-xs text-slate-500">Test projected DoI before requesting units.</p></div><span class="rounded-full border border-slate-700 px-2 py-1 text-[10px] font-bold uppercase text-slate-400">{{ role }}</span></div>
-<div class="mt-5 space-y-4"><label class="block text-xs font-bold text-slate-400">Branch<select id="simBranch" class="mt-1 w-full rounded-xl border px-3 py-3 text-sm"></select></label><label class="block text-xs font-bold text-slate-400">Brand<select id="simBrand" class="mt-1 w-full rounded-xl border px-3 py-3 text-sm"><option value="All Brands">All Brands</option></select></label><label class="block text-xs font-bold text-slate-400">Model<input id="simModel" list="simModelOptions" type="search" autocomplete="off" placeholder="Type or open model list" class="mt-1 w-full rounded-xl border px-3 py-3 text-sm"><datalist id="simModelOptions"></datalist></label>
+<div class="mt-5 space-y-4"><label class="block text-xs font-bold text-slate-400">Branch<select id="simBranch" class="mt-1 w-full rounded-xl border px-3 py-3 text-sm"></select></label><label class="block text-xs font-bold text-slate-400">Brand<select id="simBrand" class="mt-1 w-full rounded-xl border px-3 py-3 text-sm"><option value="All Brands">All Brands</option></select></label><label class="block text-xs font-bold text-slate-400">Model<input id="simModel" type="search" autocomplete="off" placeholder="Type to search models…" class="mt-1 w-full rounded-xl border px-3 py-3 text-sm"><select id="simModelDropdown" aria-label="Choose a model" class="mt-2 w-full rounded-xl border px-3 py-3 text-sm"><option value="">Select a model…</option></select></label>
 <div id="modelSnapshot" class="grid grid-cols-2 gap-2"></div><div class="grid gap-3 sm:grid-cols-2"><label class="block text-xs font-bold text-slate-400">Request Quantity<input id="requestQty" type="number" min="0" step="1" value="1" class="mt-1 w-full rounded-xl border px-3 py-3 text-sm"></label><label class="block text-xs font-bold text-slate-400">Projected New DoI<div id="newDoi" class="mt-1 rounded-xl border border-blue-400/30 bg-blue-500/10 px-3 py-3 text-lg font-black text-blue-400">—</div></label></div><label class="block text-xs font-bold text-slate-400">Remarks<textarea id="remarks" rows="3" class="mt-1 w-full rounded-xl border px-3 py-3 text-sm" placeholder="Reason / justification"></textarea></label>
 {% if role == 'admin' %}<button id="addRequest" class="w-full rounded-xl bg-blue-600 px-4 py-3 font-black text-white hover:bg-blue-500">Add to Request</button>{% else %}<div class="rounded-xl border border-slate-800 p-3 text-xs text-slate-500">Guest mode is view-only. Sign in as Admin to add request lines or download files.</div>{% endif %}</div></div>
-<div class="simulator-panel glass rounded-2xl border p-4 sm:p-5"><div class="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between"><div><h2 class="text-lg font-bold">Request Preview</h2><p class="text-xs text-slate-500">Queue requests from one or more branches, then choose the exact branch to Download Excel.</p></div>{% if role == 'admin' %}<div class="flex flex-col gap-2 sm:flex-row sm:items-end"><label class="block min-w-[220px] text-[10px] font-black uppercase tracking-wider text-slate-500">Output Branch<select id="requestOutputBranch" class="mt-1 w-full rounded-xl border px-3 py-2.5 text-xs"><option value="">Add request lines first</option></select></label><div class="flex flex-wrap gap-2"><button id="downloadRequest" type="button" class="rounded-xl border border-blue-400/50 px-3 py-2.5 text-xs font-bold text-blue-400 hover:bg-blue-500 hover:text-white">Download Excel</button></div></div>{% endif %}</div><div id="requestBranchHint" class="mt-3 hidden rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[10px] font-bold text-amber-400">Multiple branches are in the request queue. Select the branch you want to output.</div><div class="mt-4 overflow-x-auto scrollbar"><table class="w-full min-w-[980px] text-left text-xs"><thead class="text-slate-500"><tr class="border-b border-slate-800"><th class="px-2 py-3">Branch</th><th>Model</th><th>Class</th><th>Inventory</th><th>Request</th><th>Status</th><th>Current DoI</th><th>New DoI</th><th>Remarks</th><th></th></tr></thead><tbody id="requestTable"></tbody></table></div><div id="requestEmpty" class="py-16 text-center text-sm text-slate-600">No request lines yet.</div></div>
+<div class="simulator-panel glass rounded-2xl border p-4 sm:p-5"><div class="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between"><div><h2 class="text-lg font-bold">Request Preview</h2><p class="text-xs text-slate-500">Queue requests from one or more branches, then choose the exact branch to Download Excel.</p></div>{% if role == 'admin' %}<div class="flex flex-col gap-2 sm:flex-row sm:items-end"><label class="block min-w-[220px] text-[10px] font-black uppercase tracking-wider text-slate-500">Output Branch<select id="requestOutputBranch" class="mt-1 w-full rounded-xl border px-3 py-2.5 text-xs"><option value="">Add request lines first</option></select></label><div class="flex flex-wrap gap-2"><button id="downloadRequest" type="button" class="rounded-xl border border-blue-400/50 px-3 py-2.5 text-xs font-bold text-blue-400 hover:bg-blue-500 hover:text-white">Download Excel</button></div></div>{% endif %}</div><div id="requestBranchHint" class="mt-3 hidden rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[10px] font-bold text-amber-400">Multiple branches are in the request queue. Select the branch you want to output.</div><div class="mt-4 overflow-x-auto scrollbar"><table class="w-full min-w-[980px] text-left text-xs"><thead class="text-slate-500"><tr class="border-b border-slate-800"><th class="px-2 py-3">Branch</th><th>Model</th><th>Class</th><th>3 Months Sales (Qty)</th><th>Inventory</th><th>Request</th><th>Status</th><th>Current DoI</th><th>New DoI</th><th>Remarks</th><th></th></tr></thead><tbody id="requestTable"></tbody></table></div><div id="requestEmpty" class="py-16 text-center text-sm text-slate-600">No request lines yet.</div></div>
 </section></main>
 
-<main id="deliveryTab" class="mt-4 hidden space-y-5">
-<section class="delivery-command-center glass rounded-3xl border p-4 sm:p-5 lg:p-6">
-  <div class="delivery-command-hero">
-    <div class="min-w-0">
-      <div class="section-kicker">DELIVERY OPERATIONS CENTER</div>
-      <div class="mt-1 flex flex-wrap items-center gap-3"><h2 class="text-xl font-black sm:text-2xl">Weekly Dispatch Control</h2><span id="deliveryPlanHealth" class="delivery-health-pill rounded-full border px-2.5 py-1 text-[9px] font-black">READY</span></div>
-      <p class="delivery-help mt-2 max-w-3xl">Build the Monday-Saturday route, load allocation demand, balance truck capacity, then execute by branch priority. The board keeps schedule, capacity, rollover and backorder decisions in one operating view.</p>
-    </div>
-    <div class="delivery-scope-panel">
-      <label class="block text-[9px] font-black uppercase tracking-[.16em] text-slate-500">Analysis Scope<select id="deliveryDayFilter" class="mt-2 w-full rounded-xl border px-3 py-2.5 text-xs"></select></label>
-      <div class="mt-2 text-[9px] leading-relaxed text-slate-600">Select Whole Week for command-level planning or a day for dispatch execution.</div>
-    </div>
-  </div>
-
-  <div class="delivery-workflow-rail mt-5" aria-label="Delivery planning workflow">
-    <div class="delivery-workflow-node"><span>01</span><div><b>Schedule</b><small>Route &amp; truck slots</small></div></div>
-    <div class="delivery-workflow-node"><span>02</span><div><b>Allocate</b><small>Branch-model demand</small></div></div>
-    <div class="delivery-workflow-node"><span>03</span><div><b>Balance</b><small>Capacity &amp; rollover</small></div></div>
-    <div class="delivery-workflow-node"><span>04</span><div><b>Dispatch</b><small>Branch execution</small></div></div>
-  </div>
-
-  {% if role == 'admin' %}
-  <div class="delivery-action-dock mt-4">
-    <div class="delivery-action-copy"><span class="delivery-action-dot"></span><span>Working Plan</span><small>Save when schedule and allocation are ready.</small></div>
-    <div class="delivery-toolbar-actions">
-      <button id="saveDeliveryPlanBtn" class="delivery-primary-action rounded-xl px-4 py-2.5 text-xs font-black text-white">Save Active Plan</button>
-      <button id="exportDeliveryBtn" class="rounded-xl border border-blue-400/45 bg-blue-500/10 px-4 py-2.5 text-xs font-black text-blue-300 hover:bg-blue-500/15">Export Plan</button>
-      <button id="openDeliveryMasterBtn" class="rounded-xl border border-slate-700 px-4 py-2.5 text-xs font-black text-slate-300">Masterlists</button>
-      <button id="clearDeliveryBoardBtn" class="rounded-xl border border-red-500/40 px-4 py-2.5 text-xs font-black text-red-400 hover:bg-red-500/10">Clear Working Board</button>
-    </div>
-  </div>
-  {% endif %}
-
-  <div class="delivery-overview-shell mt-4">
-    <div class="delivery-overview-head"><div><div class="delivery-subpanel-title">Weekly Control Metrics</div><div id="deliveryAnalysisScope" class="mt-1 text-[10px] text-slate-500"></div></div><div id="deliveryThresholds" class="text-right text-[9px] font-bold uppercase tracking-wider text-slate-500"></div></div>
-    <div id="deliverySummaryCards" class="delivery-summary-grid mt-3"></div>
-  </div>
-
-  <div class="delivery-week-zone mt-4">
-    <div class="delivery-week-zone-head"><div><div class="delivery-subpanel-title">Monday-Saturday Rhythm</div><div class="mt-1 text-[10px] text-slate-500">Click a day to drill into its truck capacity and branch execution.</div></div><span class="delivery-week-legend"><i></i> Planned <i class="risk"></i> Action needed</span></div>
-    <div id="deliveryWeekRibbon" class="delivery-week-ribbon mt-3"></div>
-  </div>
-
-  <div id="savedDeliveryInputsBar" class="delivery-saved-plan mt-4 hidden items-center justify-between gap-3 rounded-2xl border border-emerald-500/25 p-3.5">
-    <div><div class="text-[9px] font-black uppercase tracking-wider text-emerald-500">Saved Delivery Plan • Protected</div><div class="mt-1 text-[10px] text-slate-500">Saved schedule and allocation are protected from Clear Working Board. Reopen either input when you need to review or revise it.</div></div>
-    <div class="flex flex-wrap gap-2"><button id="viewSavedScheduleBtn" type="button" class="rounded-lg border border-slate-700 px-3 py-2 text-[10px] font-black text-slate-300 hover:border-blue-400/50 hover:text-blue-400">Open Schedule</button><button id="viewSavedAllocationBtn" type="button" class="rounded-lg border border-slate-700 px-3 py-2 text-[10px] font-black text-slate-300 hover:border-blue-300/50 hover:text-blue-300">Open Allocation</button></div>
-  </div>
-</section>
-
-<section class="delivery-preparation-grid">
-  <article class="delivery-section delivery-setup-card delivery-route-card glass rounded-3xl border p-4 sm:p-5">
-    <div class="delivery-section-title">
-      <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="delivery-step">01</span><div><div class="delivery-stage-label">PLAN THE ROUTE</div><h3 class="mt-0.5 font-black">Weekly Truck Schedule</h3></div><span id="scheduleTripCount" class="rounded-full border border-slate-700 px-2 py-0.5 text-[9px] font-black text-slate-500">0 trips</span></div><p class="delivery-help mt-2">Define Day, Truck, Area and Branch delivery slots. A branch can appear more than once when it receives multiple deliveries per week.</p></div>
-      <button id="toggleScheduleBtn" type="button" aria-expanded="true" class="delivery-collapse-btn rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300">Minimize</button>
-    </div>
-    {% if role == 'admin' %}<div id="scheduleSaveState" class="mt-3 hidden rounded-xl border border-blue-400/30 bg-blue-500/10 px-3 py-2 text-[10px] font-bold text-blue-400">Unsaved schedule changes. Click Save Schedule to commit the route.</div>{% endif %}
-    <div id="weeklyScheduleBody">
-      <div class="delivery-inline-toolbar mt-4">
-        <div><div class="delivery-subpanel-title">Route Slots</div><div class="mt-1 text-[9px] text-slate-600">Day • Truck • Area • Branch • Weekly Frequency</div></div>
-        {% if role == 'admin' %}<div class="flex flex-wrap gap-2"><label class="cursor-pointer rounded-xl border border-slate-700 px-3 py-2.5 text-xs font-black text-slate-300 hover:border-blue-400/50 hover:text-blue-400"><input id="scheduleImportFile" type="file" accept=".xlsx,.xlsm,.csv" class="hidden">Import</label><button id="newTripAssignmentBtn" class="rounded-xl border border-blue-400/40 px-3 py-2.5 text-xs font-black text-blue-300 hover:bg-blue-500/10">+ Add Route Slot</button><button id="saveScheduleBtn" class="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white hover:bg-blue-500">Save Schedule</button></div>{% endif %}
-      </div>
-      <div id="scheduleRows" class="mt-3 space-y-2"></div>
-      {% if role == 'admin' %}<div id="scheduleImportWarnings" class="mt-3 hidden rounded-xl border border-blue-400/30 bg-blue-500/10 p-3 text-[10px] leading-relaxed text-blue-400"></div>{% endif %}
-    </div>
-  </article>
-
-  <article class="delivery-section delivery-setup-card delivery-demand-card glass rounded-3xl border p-4 sm:p-5">
-    <div class="delivery-section-title">
-      <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="delivery-step">02</span><div><div class="delivery-stage-label">LOAD THE DEMAND</div><h3 class="mt-0.5 font-black">Allocation Input</h3></div><span id="allocationCount" class="rounded-full border border-slate-700 px-2.5 py-1 text-[10px] font-black text-slate-400">0 rows</span></div><p class="delivery-help mt-2">Import Model, Branch, Quantity, Class and Remarks. The system maps demand to saved route slots and applies Class A-first loading automatically.</p></div>
-      <button id="toggleAllocationBtn" type="button" aria-expanded="true" class="delivery-collapse-btn rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300">Minimize</button>
-    </div>
-    <div id="allocationImportBody">
-      <div class="delivery-demand-actions mt-4">{% if role == 'admin' %}<label class="delivery-import-cta cursor-pointer rounded-2xl border p-4"><input id="deliveryImportFile" type="file" accept=".xlsx,.xlsm,.csv" class="hidden"><span class="delivery-import-icon">⇧</span><span><b>Import Allocation File</b><small>Excel / CSV demand input</small></span></label>{% else %}<div class="rounded-xl border border-slate-800 p-3 text-xs text-slate-500">Guest mode is view-only.</div>{% endif %}<a href="/delivery/template" class="delivery-template-link rounded-2xl border p-4"><span class="delivery-import-icon">↓</span><span><b>Download Template</b><small>Use the approved import structure</small></span></a></div>
-      <div id="allocationWarnings" class="mt-3 hidden rounded-xl border border-blue-400/30 bg-blue-500/10 p-3 text-[10px] text-blue-400"></div>
-      <div class="delivery-rule-card mt-3"><div class="delivery-rule-icon">A</div><div><b>Priority loading rule</b><p>Allocation is consumed once across Monday-Saturday. Class A loads before B and C. Excess moves to the branch's next saved trip; residual demand becomes following-week backorder.</p></div></div>
-      <div class="mt-3 flex flex-wrap gap-2">{% if role == 'admin' %}<button class="openAllocationControl rounded-xl border border-blue-400/40 px-3 py-2.5 text-xs font-black text-blue-400 hover:bg-blue-500/10">Manage Allocations</button><button id="clearAllocationsBtn" class="rounded-xl border border-red-500/40 px-3 py-2.5 text-xs font-black text-red-400 hover:bg-red-500/10">Clear Allocation</button>{% endif %}</div>
-    </div>
-  </article>
-</section>
-
-<section class="delivery-section delivery-plan-stage glass rounded-3xl border p-4 sm:p-5 lg:p-6">
-  <div class="delivery-section-title">
-    <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="delivery-step">03</span><div><div class="delivery-stage-label">BALANCE CAPACITY</div><h3 class="mt-0.5 text-lg font-black">Fleet Load &amp; Capacity Control</h3></div></div><p class="delivery-help mt-2">Review planned utilization by truck. Carryover and backorder are surfaced as exceptions so dispatch changes can be made before execution.</p></div>
-    <div class="flex flex-wrap items-center justify-end gap-2">{% if role == 'admin' %}<button class="openAllocationControl rounded-xl border border-blue-400/40 px-3 py-2.5 text-xs font-black text-blue-400 hover:bg-blue-500/10">Adjust / Rebalance Model</button>{% endif %}</div>
-  </div>
-  <div id="deliveryPlanPulse" class="delivery-plan-pulse mt-4"></div>
-  <div class="delivery-rollover-note mt-4"><div class="delivery-rollover-icon">↻</div><div><b>Automatic rollover is active</b><p>Truck capacity is enforced by load index. Remaining units move to the branch's next saved trip. If no later trip exists, the quantity is marked Backorder / Following Week.</p></div></div>
-  <div class="delivery-board-divider mt-5"><span>Fleet Load Board</span></div>
-  <div id="deliveryTruckGrid" class="delivery-truck-grid mt-4"></div><div id="deliveryUnassigned" class="mt-4"></div>
-</section>
-
-<section class="delivery-section delivery-dispatch-stage glass rounded-3xl border p-4 sm:p-5 lg:p-6">
-  <div class="delivery-section-title">
-    <div class="min-w-0"><div class="flex flex-wrap items-center gap-2"><span class="delivery-step">04</span><div><div class="delivery-stage-label">EXECUTE THE PLAN</div><h3 class="mt-0.5 text-lg font-black">Branch Dispatch Sequence</h3></div></div><p class="delivery-help mt-2">Operational loading order by Day, Trip, Truck and Branch. Use this section during dispatch execution after capacity balancing is complete.</p></div>
-    <div class="delivery-dispatch-key">Day • Trip • Truck • Branch • Planned • Carryover • Backorder</div>
-  </div>
-  <div id="deliveryPriorityList" class="delivery-priority-grid mt-4"></div>
-</section>
-</main>
 {% include '_unified_import_modal.html' %}
 
 {% if role == 'admin' %}
@@ -344,83 +256,11 @@
   </div>
 </div>
 
-<div id="tripAssignmentModal" class="fixed inset-0 z-[85] hidden items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm">
-  <div class="glass w-full max-w-4xl overflow-hidden rounded-2xl border">
-    <div class="flex items-start justify-between gap-3 border-b border-slate-800 p-4 sm:p-5"><div><div class="section-kicker">WEEKLY TRUCK SCHEDULE</div><h3 class="mt-1 text-lg font-black">New Trip Assignment</h3><p class="mt-1 text-xs text-slate-500">Add a route slot, then Save Schedule to commit all pending schedule changes. Saved trips remain protected from Clear Board.</p></div><button id="closeTripAssignmentBtn" class="rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300">Close</button></div>
-    <div class="p-4 sm:p-5">
-      <div class="schedule-builder-grid trip-assignment-grid">
-        <label class="min-w-0 text-[9px] font-black uppercase tracking-wider text-slate-500">Day<select id="scheduleDaySelect" class="mt-1 w-full min-w-0 rounded-xl border px-3 py-2.5 text-xs"></select></label>
-        <label class="min-w-0 text-[9px] font-black uppercase tracking-wider text-slate-500">Truck<select id="scheduleTruckSelect" class="mt-1 w-full min-w-0 rounded-xl border px-3 py-2.5 text-xs"></select></label>
-        <label class="min-w-0 text-[9px] font-black uppercase tracking-wider text-slate-500">Area<select id="scheduleAreaFilter" class="mt-1 w-full min-w-0 rounded-xl border px-3 py-2.5 text-xs"></select></label>
-        <label class="schedule-branch-field min-w-0 text-[9px] font-black uppercase tracking-wider text-slate-500">Branch<input id="scheduleBranchSearch" list="scheduleBranchOptions" autocomplete="off" placeholder="Type to search branch" class="mt-1 w-full min-w-0 rounded-xl border px-3 py-2.5 text-xs"><datalist id="scheduleBranchOptions"></datalist></label>
-        <button id="addScheduleRow" class="schedule-action-field self-end rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white hover:bg-blue-500">Add Trip</button>
-      </div>
-      <div class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/20 p-3"><div class="text-[10px] text-slate-500">After Add Trip, the route is staged as <span class="font-black text-blue-400">Unsaved</span>. Click <span class="font-black text-blue-400">Save Schedule</span> in the Weekly Truck Schedule header to commit it.</div><button id="cancelTripAssignmentBtn" class="rounded-lg border border-slate-700 px-3 py-2 text-xs font-black text-slate-400">Cancel</button></div>
-    </div>
-  </div>
-</div>
-
-<div id="allocationControlModal" class="fixed inset-0 z-[84] hidden items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm">
-  <div class="glass max-h-[94vh] w-full max-w-7xl overflow-hidden rounded-2xl border">
-    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 p-4 sm:p-5">
-      <div><div class="section-kicker">DELIVERY PLAN SUPPORT TOOL</div><h3 class="mt-1 text-lg font-black">Allocation Control Center</h3><p class="mt-1 max-w-3xl text-xs text-slate-500">This replaces the old full-page “Imported Allocation + Scheduled Dispatch” section. Its only purpose is correction and maintenance: review every saved model allocation, see its mapped weekly trips, adjust Model / Branch / Quantity / Class / Remarks, or delete a line. The actual Delivery Plan remains in Weekly Delivery Plan & Capacity Control.</p></div>
-      <button id="closeAllocationControlBtn" class="rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300">Close</button>
-    </div>
-    <div class="max-h-[82vh] overflow-auto p-4 scrollbar sm:p-5">
-      <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/20 p-3">
-        <div><div class="text-[9px] font-black uppercase tracking-wider text-slate-500">Allocation Workspace</div><div class="mt-1 text-[10px] text-slate-500">Changes here recalculate truck capacity, rollover and backorder after Save &amp; Recalculate.</div></div>
-        <div class="flex flex-wrap gap-2"><button id="editSavedAllocationsBtn" class="hidden rounded-xl border border-blue-400/40 px-3 py-2 text-xs font-black text-blue-400">Load Saved Allocations</button><button id="addAllocationRow" class="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300">+ New Allocation</button><button id="saveAllocationsBtn" class="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white">Save &amp; Recalculate</button></div>
-      </div>
-      <div id="allocationTable" class="mt-4 space-y-2"></div>
-    </div>
-  </div>
-</div>
-
-<div id="allocationEditModal" class="fixed inset-0 z-[86] hidden items-center justify-center bg-slate-950/85 p-3 backdrop-blur-sm">
-  <div class="glass max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-2xl border">
-    <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 p-4 sm:p-5">
-      <div><div class="section-kicker">ALLOCATION REBALANCE</div><h3 id="allocationEditTitle" class="mt-1 text-lg font-black">Edit Allocation</h3><p class="mt-1 max-w-2xl text-xs text-slate-500">Open one model directly, adjust its quantity or details, and optionally move all or part of the allocation to another saved truck trip for load balancing.</p></div>
-      <button id="closeAllocationEditBtn" class="rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300">Close</button>
-    </div>
-    <div class="max-h-[80vh] overflow-auto p-4 scrollbar sm:p-5">
-      <input id="allocationEditIndex" type="hidden">
-      <div class="grid gap-3 sm:grid-cols-2">
-        <label class="text-[9px] font-black uppercase tracking-wider text-slate-500">Model<select id="allocationEditModel" class="mt-1 w-full rounded-xl border px-3 py-3 text-xs"></select></label>
-        <label class="text-[9px] font-black uppercase tracking-wider text-slate-500">Branch<select id="allocationEditBranch" class="mt-1 w-full rounded-xl border px-3 py-3 text-xs"></select></label>
-        <label class="text-[9px] font-black uppercase tracking-wider text-slate-500">Quantity<input id="allocationEditQty" type="number" min="1" step="1" class="mt-1 w-full rounded-xl border px-3 py-3 text-xs"></label>
-        <label class="text-[9px] font-black uppercase tracking-wider text-slate-500">Class<select id="allocationEditClass" class="mt-1 w-full rounded-xl border px-3 py-3 text-xs"><option value="">Unclassified</option><option value="A">Class A</option><option value="B">Class B</option><option value="C">Class C</option></select></label>
-        <label class="sm:col-span-2 text-[9px] font-black uppercase tracking-wider text-slate-500">Remarks<input id="allocationEditRemarks" class="mt-1 w-full rounded-xl border px-3 py-3 text-xs" placeholder="Allocation / dispatch note"></label>
-      </div>
-      <div class="mt-4 rounded-2xl border border-blue-400/20 bg-blue-500/5 p-4">
-        <div class="flex flex-wrap items-start justify-between gap-3"><div><div class="text-[9px] font-black uppercase tracking-wider text-blue-400">Truck Rebalance</div><div class="mt-1 text-[10px] text-slate-500">Choose Auto to follow the Branch schedule, or select another saved Day + Truck trip to manually rebalance this allocation.</div></div><span id="allocationEditCurrentRoute" class="rounded-full border border-slate-700 px-2 py-1 text-[9px] font-black text-slate-400">AUTO</span></div>
-        <label class="mt-3 block text-[9px] font-black uppercase tracking-wider text-slate-500">Target Truck / Trip<select id="allocationEditTargetTrip" class="mt-1 w-full rounded-xl border px-3 py-3 text-xs"></select></label>
-        <div class="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-          <label class="text-[9px] font-black uppercase tracking-wider text-slate-500">Split Transfer Quantity <span class="normal-case font-medium text-slate-600">(optional)</span><input id="allocationTransferQty" type="number" min="1" step="1" class="mt-1 w-full rounded-xl border px-3 py-3 text-xs" placeholder="Leave blank to move the full allocation"></label>
-          <button id="splitTransferAllocationBtn" class="rounded-xl border border-blue-400/40 px-4 py-3 text-xs font-black text-blue-400 hover:border-blue-300 hover:bg-blue-500/10">Split &amp; Transfer</button>
-        </div>
-      </div>
-      <div class="mt-4 flex flex-wrap items-center justify-between gap-3"><div class="text-[10px] text-slate-500">Save &amp; Rebalance updates this model immediately and recalculates utilization, rollover and backorder.</div><div class="flex gap-2"><button id="deleteAllocationEditBtn" class="rounded-xl border border-red-500/40 px-4 py-3 text-xs font-black text-red-500">Delete</button><button id="saveAllocationEditBtn" class="rounded-xl bg-blue-600 px-4 py-3 text-xs font-black text-white">Save &amp; Rebalance</button></div></div>
-    </div>
-  </div>
-</div>
-
-<div id="deliveryMasterModal" class="fixed inset-0 z-[80] hidden items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm">
-  <div class="glass max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-2xl border">
-    <div class="flex items-start justify-between gap-3 border-b border-slate-800 p-4 sm:p-5"><div><h3 class="text-lg font-black">Update Delivery Masterlists</h3><p class="mt-1 text-xs text-slate-500">Maintain truck capacity, model index size, branch/area master data and utilization thresholds.</p></div><button id="closeDeliveryMasterBtn" class="rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300">Close</button></div>
-    <div class="max-h-[80vh] overflow-auto p-4 scrollbar sm:p-5">
-      <div class="flex flex-wrap gap-2"><button class="deliveryMasterTab tab-active rounded-xl border border-blue-400 px-3 py-2 text-xs font-black" data-master="trucks">Trucks</button><button class="deliveryMasterTab rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-400" data-master="models">Models</button><button class="deliveryMasterTab rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-400" data-master="branches">Branches</button></div>
-      <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><input id="masterSearch" class="w-full rounded-xl border px-3 py-2 text-xs sm:max-w-sm" placeholder="Search current masterlist..."><div class="flex gap-2"><button id="addMasterRow" class="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300">Add Row</button><button id="saveMasterBtn" class="rounded-xl bg-blue-500 px-3 py-2 text-xs font-black text-white">Save Masterlist</button></div></div>
-      <div id="masterSettings" class="mt-4 grid gap-2 sm:grid-cols-3"></div>
-      <div class="mt-3 max-h-[520px] overflow-auto rounded-xl border border-slate-800 scrollbar"><table class="w-full min-w-[760px] text-left text-xs"><thead id="masterHead" class="sticky top-0 z-10 bg-slate-950 text-slate-500"></thead><tbody id="masterBody"></tbody></table></div>
-    </div>
-  </div>
-</div>
 {% endif %}
-</main>
 </div>
 <div id="toast" role="status" aria-live="polite" aria-atomic="true" class="fixed bottom-4 right-4 z-50 hidden max-w-sm rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm shadow-2xl"></div>
 <script>window.SCM_CONFIG=Object.freeze({isAdmin:{{ 'true' if role == 'admin' else 'false' }}});</script>
-<script src="/static/js/dashboard-app.js?v=2482"></script>
+<script src="/static/js/dashboard-app.js?v=2490"></script>
 <script src="/static/js/sidebar-data-ops.js?v=2471"></script>
 <script src="/static/js/unified-import.js?v=2476"></script>
 </div>

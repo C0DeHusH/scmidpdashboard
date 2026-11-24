@@ -1,3 +1,12 @@
+# Version 2.49.0 — Dashboard improvements
+
+- Retired the Delivery Plan workspace and navigation (including Motorcycle Aging navigation). Legacy delivery endpoints are disabled; existing delivery files are retained for archival purposes. The existing Clear All User Data action still clears archived delivery data as explicitly described in its confirmation dialog.
+- Branch Request Simulator: type to narrow the native model dropdown, select a model, and view the imported Class and 3 Months Sales (Qty). The preview and Excel download include the same sales quantity. Export resolves the selected model and brand against the active workbook.
+- Area Performance: click an area ranking row to see every branch, its A/B/C stock-out percentages and underlying model records. Filter by branch, class, stock-out status, or model/brand text. Counts use the same recorded-stock-status denominator as the original area ranking.
+- Management Order Plan: search by model or choose the native dropdown; each option displays model, brand, class, and 3-month sales quantity. The order table and mobile cards show the same sales reference.
+- Sales quantity is imported directly from `3Mo Sales Qty Total` in the Raw (branch requests) or Reorder/Management (order planning) sheet. Missing values remain blank/unknown, not estimated from ADS. Existing input workbook format and saved planning data are retained.
+- Validation: 37 core smoke tests passed, Python compilation and JavaScript syntax checks passed. Browser navigation was blocked by the execution environment, so full browser integration and live deployment still require a local check.
+
 # SCM Inventory & Distribution Planning Control Tower — v2.48.6
 
 
