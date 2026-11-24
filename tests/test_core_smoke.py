@@ -155,6 +155,28 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
         self.assertIn("3Mo Sales Qty Total</th>", template)
 
+    def test_management_layout_matches_order_export(self):
+        from dashboard.xlsx_export import build_management_order_xlsx
+        template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+        table = template.split('class="management-order-table', 1)[1].split('</table>', 1)[0]
+        self.assertEqual(table.count('<col style='), 14)
+        self.assertIn('colspan="10"', table)
+        self.assertLess(table.index('id="managementTotalAllocation"'), table.index('id="managementGrandTotal"'))
+        js = (ROOT / "static" / "js" / "dashboard-app.js").read_text(encoding="utf-8")
+        row_renderer = js.split('body.innerHTML=rows.map((r,idx)=>', 1)[1].split('mobile.innerHTML=', 1)[0]
+        self.assertEqual(row_renderer.count('<td '), 14)
+        self.assertLess(row_renderer.index('data-management-doi'), row_renderer.index('data-management-total'))
+        self.assertLess(row_renderer.index('data-management-total'), row_renderer.index("managementInput(key,'remarks'"))
+        row = dict(brand="Example", model="Model A", **{"class": "B"}, sales_3m=23,
+                   avg_daily_sale=0.2567, unit_cost=1250.50, inventory=10, doi=39,
+                   stock_status="Reorder", po_balance=3, allocation=4, new_doi=67,
+                   total_amount=5002, remarks="Planning note")
+        ws = load_workbook(BytesIO(build_management_order_xlsx({"rows": [row]})), data_only=True).active
+        self.assertEqual([c.value for c in ws[7]], [1, "Example", "Model A", "B", 23, 0.2567, 1250.5, 10, 39, "Reorder", 3, 4, 67, 5002, "Planning note"])
+        self.assertEqual(ws["F7"].number_format, "#,##0.00")
+        self.assertEqual(ws["L8"].value, 4)
+        self.assertEqual(ws["N8"].value, 5002)
+
     def test_empty_kpi_series_are_not_shared(self):
         kpis = DashboardStore._empty_kpis()
         first, second = TARGET_KPIS[:2]

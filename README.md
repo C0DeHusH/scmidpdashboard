@@ -1,3 +1,9 @@
+# Version 2.49.3 — Management search and field alignment
+
+- Management Model uses one editable searchable dropdown with clearly separated brand, class, 3-month sales and two-decimal ADS metadata. Keyboard highlight persists across unchanged asynchronous results.
+- Responsive aligned filter grid, minimum-width scrollable desktop table, matching mobile card fields and consistent remarks/total ordering with Excel.
+- Desktop and mobile planning inputs stay synchronized; export is disabled while filters load to avoid stale rows. Existing import fields, calculations and saved data are preserved.
+
 # Version 2.49.2 — Class, average daily sales and single searchable Model field
 
 - Management Order Plan includes dedicated Class and Avg. Daily Sale (Qty) columns, including each brand worksheet.

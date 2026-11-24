@@ -1,0 +1,44 @@
+/* Responsive field alignment; keep table and dropdown inside the workspace. */
+#managementTab,#managementTab>section{min-width:0}
+.management-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(0,1.9fr);gap:12px;align-items:end}
+.management-filter-field{display:flex;flex-direction:column;min-width:0;line-height:1.3;gap:6px}
+.management-filter-field>label{display:block;line-height:1.3}
+.management-filter-field>select,.management-filter-field .model-combo{margin:0!important}
+.management-filter-field>select,.management-filter-field .model-combo input{height:42px;min-height:42px;box-sizing:border-box;font-size:12px!important;line-height:1.3!important;min-width:0;width:100%;font-weight:500;text-transform:none;letter-spacing:normal}
+.management-filter-field>select{padding:0 10px!important}
+.model-combo input{padding-right:38px!important;box-sizing:border-box}
+.model-combo-toggle{display:grid;place-items:center;height:auto;min-height:0;line-height:1;padding:0!important}
+#managementTab .model-combo-list{width:max(100%,360px);max-width:500px;right:0;left:auto;z-index:100;overscroll-behavior:contain;scrollbar-gutter:stable}
+.model-option-name{font-size:12px;font-weight:700;overflow-wrap:anywhere;color:var(--text)}
+.model-option-detail{font-size:10px;line-height:1.4;margin-top:3px;color:var(--muted);font-weight:500;overflow-wrap:anywhere}
+#managementCards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));align-items:stretch;gap:10px}
+#managementCards>div{min-width:0;display:flex;flex-direction:column;justify-content:space-between;gap:5px}
+#managementCards>div>div:last-child{font-size:clamp(15px,1.4vw,22px);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+#managementTab .order-review-table-shell{max-width:100%;overflow-x:auto!important;overscroll-behavior-x:contain}
+#managementTab .management-order-table{min-width:1523px;width:100%;table-layout:fixed;border-spacing:0 6px!important;padding:0 8px 8px!important;box-sizing:border-box}
+#managementTab .management-order-table th,#managementTab .management-order-table td{box-sizing:border-box;vertical-align:middle;overflow-wrap:normal}
+#managementTab .management-order-table th{white-space:normal!important;line-height:1.3!important;letter-spacing:.04em!important}
+#managementTab .management-order-table td{font-variant-numeric:tabular-nums}
+#managementTab .management-order-table td:nth-child(2),#managementTab .management-order-table td:last-child{overflow-wrap:anywhere}
+#managementTab .management-order-table .management-row-number{max-width:100%}
+#managementTab .management-edit,#managementTab .management-readonly,#managementTab .management-result{box-sizing:border-box;min-height:36px;min-width:0;width:100%;font-size:11px!important;line-height:1.3!important;border-radius:8px!important}
+#managementTab .management-edit{padding:7px 8px!important;display:block;margin:0;letter-spacing:normal;text-transform:none}
+#managementTab .management-edit[type=number]{appearance:textfield;-moz-appearance:textfield;font-variant-numeric:tabular-nums}
+#managementTab .management-edit[type=number]::-webkit-inner-spin-button,#managementTab .management-edit[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+#managementTab .management-edit[data-management-field=inventory],#managementTab .management-edit[data-management-field=po_balance],#managementTab .management-edit[data-management-field=quantity]{text-align:center}
+#managementTab .management-result{display:flex;align-items:center;justify-content:flex-end;white-space:nowrap;padding:7px 8px!important}
+#managementTab [data-management-doi]{justify-content:center}
+#managementTab .management-status .management-readonly{padding:5px!important}
+#managementTab .management-status .status-pill{white-space:normal;text-align:center;overflow-wrap:anywhere}
+#managementTab .management-order-table tfoot td{white-space:nowrap;padding-top:12px;padding-bottom:12px}
+#managementTab .management-card-grid,#managementTab .management-card-bottom{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:end}
+#managementTab .management-card-bottom{grid-template-columns:minmax(0,1fr) minmax(120px,180px)}
+#managementTab .management-card-grid>*,#managementTab .management-card-bottom>*{min-width:0;display:flex;flex-direction:column;gap:5px}
+#managementTab .management-card-grid .management-readonly,#managementTab .management-card-grid .management-result,#managementTab .management-card-bottom .management-result{margin:0!important}
+#managementTab .management-mobile article{min-width:0;overflow-wrap:anywhere}
+#managementTab[aria-busy=true] #downloadManagementBtn{opacity:.5;cursor:wait}
+@container management (min-width:900px){#managementTab .management-desktop{display:block!important}#managementTab .management-mobile{display:none!important}}
+@container management (max-width:899px){.management-filters{grid-template-columns:repeat(2,minmax(0,1fr))}#managementTab .management-desktop{display:none!important}#managementTab .management-mobile{display:grid!important}#managementCards{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@container management (max-width:560px){.management-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.management-model-field{grid-column:1/-1}#managementTab .model-combo-list{width:100%;max-width:100%}#managementCards{grid-template-columns:repeat(2,minmax(0,1fr))}#managementTab .management-card-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#managementTab .management-card-bottom{grid-template-columns:minmax(0,1fr)}}
+@container management (max-width:320px){.management-filters{grid-template-columns:minmax(0,1fr)}#managementTab .management-card-grid{grid-template-columns:minmax(0,1fr)}}
+#managementTab .management-order-table tbody td:nth-child(3) .inline-flex{white-space:nowrap;padding-inline:5px!important;font-size:9px!important}
