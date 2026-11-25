@@ -409,6 +409,7 @@ class DashboardStore:
         status: str = "All Statuses",
         model: str = "All Models",
         allocations: Optional[Dict[str, Any]] = None,
+        models: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Management order-planning view sourced from the workbook's Management/Re-order sheet.
 
@@ -458,6 +459,9 @@ class DashboardStore:
             if (not class_key or class_key == "All Classes" or r["class"] == class_key)
             and (not status or status == "All Statuses" or r["stock_status"].lower() == status.lower())),
             key=lambda r: (r["model"].casefold(), r["brand"]))
+        # Explicit multi-select uses exact names (OR); retain legacy single-model search.
+        selected_models = list(dict.fromkeys(_clean(m) for m in (models or []) if isinstance(m, str) and _clean(m) and _clean(m).casefold() != "all models"))
+        selected_names = {m.casefold() for m in selected_models}
         exact_model = any(r["model"].casefold() == model.casefold() for r in model_options) if model else False
         all_statuses = sorted({r["stock_status"] for r in effective if r["stock_status"]})
 
@@ -468,6 +472,8 @@ class DashboardStore:
                 return False
             if status and status != "All Statuses" and r["stock_status"].lower() != status.lower():
                 return False
+            if models is not None:
+                return not selected_names or r["model"].casefold() in selected_names
             if model and model != "All Models" and (model.casefold() != r["model"].casefold() if exact_model else model.casefold() not in r["model"].casefold()):
                 return False
             return True
@@ -485,7 +491,7 @@ class DashboardStore:
         return {
             "source_sheet": sheet_name,
             "title": title,
-            "selected": {"brand": brand, "class": class_key, "status": status, "model": model},
+            "selected": {"brand": brand, "class": class_key, "status": status, "model": (", ".join(selected_models) or "All Models") if models is not None else model, **({"models": selected_models} if models is not None else {})},
             "filters": {
                 "brands": ["All Brands"] + all_brands,
                 "classes": ["All Classes", "A", "B", "C"],

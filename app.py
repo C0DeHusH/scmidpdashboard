@@ -633,6 +633,7 @@ def api_management():
         status=request.args.get("status", "All Statuses"),
         model=request.args.get("model", "All Models"),
         allocations=_load_management_allocations(),
+        models=request.args.getlist("models") if "models" in request.args else None,
     ))
 
 
@@ -668,27 +669,22 @@ def _prepare_management_output(payload: dict) -> dict:
         {r["key"] for r in store.management_records},
     )
 
-    visible_keys = payload.get("keys") or []
-    if visible_keys and isinstance(visible_keys, list):
-        # Build the same effective row set for Excel and direct print. This keeps
-        # on-screen edits aligned with the user's current filtered view.
-        data = store.management_dashboard(allocations=combined)
+    selected_models = payload.get("models")
+    if not isinstance(selected_models, list):
+        selected_models = None
+    data = store.management_dashboard(
+        brand=str(payload.get("brand") or "All Brands"),
+        class_key=str(payload.get("class") or "All Classes"),
+        status=str(payload.get("status") or "All Statuses"),
+        model=str(payload.get("model") or "All Models"),
+        models=selected_models,
+        allocations=combined,
+    )
+    visible_keys = payload.get("keys")
+    if isinstance(visible_keys, list):
+        # Keep output in the same order and scope as the visible rows, including an empty view.
         by_key = {r.get("key"): r for r in data.get("rows", [])}
-        data["rows"] = [by_key[k] for k in visible_keys if k in by_key]
-        data["selected"] = {
-            "brand": str(payload.get("brand") or "All Brands"),
-            "class": str(payload.get("class") or "All Classes"),
-            "status": str(payload.get("status") or "All Statuses"),
-            "model": str(payload.get("model") or "All Models"),
-        }
-    else:
-        data = store.management_dashboard(
-            brand=str(payload.get("brand") or "All Brands"),
-            class_key=str(payload.get("class") or "All Classes"),
-            status=str(payload.get("status") or "All Statuses"),
-            model=str(payload.get("model") or "All Models"),
-            allocations=combined,
-        )
+        data["rows"] = [by_key[k] for k in visible_keys if isinstance(k, str) and k in by_key]
 
     # Output only true order lines, matching the downloaded Excel workbook.
     ordered_rows = [r for r in data.get("rows", []) if float(r.get("allocation", 0) or 0) > 0]

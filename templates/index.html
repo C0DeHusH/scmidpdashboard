@@ -16,7 +16,7 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script>tailwind.config={theme:{extend:{fontFamily:{sans:['Inter','ui-sans-serif','system-ui','sans-serif'],display:['Manrope','Inter','ui-sans-serif','system-ui','sans-serif']}}}};</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
-<link rel="stylesheet" href="/static/css/dashboard.css?v=2493">
+<link rel="stylesheet" href="/static/css/dashboard.css?v=2494">
 <link rel="stylesheet" href="/static/css/v244-ui.css?v=2471">
 <link rel="stylesheet" href="/static/css/v2464-professional.css?v=2471">
 <link rel="stylesheet" href="/static/css/v2471-theme-contrast.css?v=2471">
@@ -204,7 +204,7 @@
     <label class="management-filter-field text-[10px] font-black uppercase tracking-wider text-slate-500">Brand<select id="managementBrandFilter" class="mt-1 w-full rounded-xl border px-3 py-2.5 text-xs"></select></label>
     <label class="management-filter-field text-[10px] font-black uppercase tracking-wider text-slate-500">Class<select id="managementClassFilter" class="mt-1 w-full rounded-xl border px-3 py-2.5 text-xs"></select></label>
     <label class="management-filter-field text-[10px] font-black uppercase tracking-wider text-slate-500">Stock Status<select id="managementStatusFilter" class="mt-1 w-full rounded-xl border px-3 py-2.5 text-xs"></select></label>
-    <div class="management-filter-field management-model-field"><label for="managementModelFilter" class="text-[10px] font-black uppercase tracking-wider text-slate-500">Model</label><div class="model-combo" data-model-combo="managementModelFilter"><input id="managementModelFilter" type="text" role="combobox" aria-label="Model" aria-autocomplete="list" aria-expanded="false" aria-controls="managementModelDropdown" autocomplete="off" placeholder="Type to search or select model…" class="w-full rounded-xl border px-3 py-2.5 text-xs"><button type="button" class="model-combo-toggle" aria-label="Show model list" tabindex="-1">▾</button><div id="managementModelDropdown" class="model-combo-list" role="listbox" hidden></div></div></div>
+    <div class="management-filter-field management-model-field"><label for="managementModelFilter" class="text-[10px] font-black uppercase tracking-wider text-slate-500">Model</label><div class="model-combo" data-model-combo="managementModelFilter"><input id="managementModelFilter" type="text" role="combobox" aria-label="Search models" aria-autocomplete="list" aria-expanded="false" aria-controls="managementModelDropdown" autocomplete="off" placeholder="Search and select models…" class="w-full rounded-xl border px-3 py-2.5 text-xs"><button type="button" class="model-combo-toggle" aria-label="Show model list" tabindex="-1">▾</button><div id="managementModelDropdown" class="model-combo-list" role="listbox" aria-label="Models" aria-multiselectable="true" hidden></div></div><div class="management-model-selection"><div id="managementSelectedModels" aria-live="polite"></div><button id="managementClearModels" type="button" hidden>Clear models</button></div></div>
   </div>
   <div id="managementCards" class="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5"></div>
 </section>
@@ -261,7 +261,7 @@
 </div>
 <div id="toast" role="status" aria-live="polite" aria-atomic="true" class="fixed bottom-4 right-4 z-50 hidden max-w-sm rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm shadow-2xl"></div>
 <script>window.SCM_CONFIG=Object.freeze({isAdmin:{{ 'true' if role == 'admin' else 'false' }}});</script>
-<script src="/static/js/dashboard-app.js?v=2493"></script>
+<script src="/static/js/dashboard-app.js?v=2494"></script>
 <script src="/static/js/sidebar-data-ops.js?v=2471"></script>
 <script src="/static/js/unified-import.js?v=2476"></script>
 </div>

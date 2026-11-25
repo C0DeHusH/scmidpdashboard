@@ -1,3 +1,7 @@
+# Version 2.49.4 — Management model multi-select
+
+Search and select multiple model names, remove selected chips individually, or clear/reset filters. Model selections are combined with OR; Brand, Class and Stock Status remain independent AND filters. Excel and print output retain the selected scope.
+
 # Version 2.49.3 — Management search and field alignment
 
 - Management Model uses one editable searchable dropdown with clearly separated brand, class, 3-month sales and two-decimal ADS metadata. Keyboard highlight persists across unchanged asynchronous results.

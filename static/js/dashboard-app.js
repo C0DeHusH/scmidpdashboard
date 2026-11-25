@@ -287,7 +287,26 @@ function initWorkspaceChrome(){
   window.addEventListener('resize',()=>{if(window.innerWidth>=1024)document.body.classList.remove('sidebar-mobile-open')});
 }
 
-function managementModelValue(){return String($('#managementModelFilter')?.value||'').trim()||'All Models'}
+const managementSelectedModels=new Set();
+function initManagementMultiSelect(){
+  const input=$('#managementModelFilter'),list=$('#managementModelDropdown'),wrap=input.closest('.model-combo'),toggle=wrap.querySelector('button'),selected=$('#managementSelectedModels'),clear=$('#managementClearModels');
+  let shown=[],active=-1;
+  const names=()=>[...new Map((state.management?.filters?.model_options||[]).filter(r=>r.model).map(r=>[r.model.toLowerCase(),r.model])).values()].sort((a,b)=>a.localeCompare(b));
+  function renderSelected(){
+    selected.replaceChildren();clear.hidden=managementSelectedModels.size===0;
+    if(!managementSelectedModels.size){selected.textContent='All Models';return}
+    for(const name of managementSelectedModels){const chip=document.createElement('button');chip.type='button';chip.className='management-model-chip';chip.textContent=name+' ×';chip.setAttribute('aria-label','Remove '+name);chip.onclick=()=>{managementSelectedModels.delete(name);renderSelected();draw();managementFiltersChanged()};selected.append(chip)}
+  }
+  function close(){list.hidden=true;input.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');active=-1;input.value=''}
+  function mark(i,scroll=false){active=i;[...list.querySelectorAll('[role=option]')].forEach((el,j)=>el.classList.toggle('management-model-active',j===i));const el=list.children[i];if(i>=0&&el){input.setAttribute('aria-activedescendant',el.id);if(scroll)el.scrollIntoView({block:'nearest'})}else input.removeAttribute('aria-activedescendant')}
+  function draw(){if(list.hidden)return;const previous=shown[active],scroll=list.scrollTop,q=input.value.trim().toLowerCase();shown=names().filter(n=>n.toLowerCase().includes(q));list.replaceChildren();if(!shown.length){const el=document.createElement('div');el.className='model-combo-empty';el.textContent='No matching models';list.append(el)}shown.forEach((name,i)=>{const el=document.createElement('div');el.id='management-model-option-'+i;el.className='model-combo-option management-model-option';el.setAttribute('role','option');el.setAttribute('aria-selected',String(managementSelectedModels.has(name)));const tick=document.createElement('span');tick.className='management-model-tick';tick.setAttribute('aria-hidden','true');tick.textContent=managementSelectedModels.has(name)?'✓':'';const label=document.createElement('span');label.textContent=name;el.append(tick,label);el.onmousedown=e=>e.preventDefault();el.onclick=()=>choose(i);list.append(el)});mark(shown.indexOf(previous));list.scrollTop=scroll}
+  function open(){list.hidden=false;input.setAttribute('aria-expanded','true');draw()}
+  function choose(i){const name=shown[i];if(!name)return;if(managementSelectedModels.has(name))managementSelectedModels.delete(name);else managementSelectedModels.add(name);renderSelected();draw();managementFiltersChanged()}
+  function reset(){managementSelectedModels.clear();renderSelected();draw()}
+  input.oninput=()=>{active=-1;open();list.scrollTop=0};input.onfocus=open;input.onclick=()=>{if(list.hidden)open()};toggle.onmousedown=e=>e.preventDefault();toggle.onclick=()=>{if(!list.hidden)close();else{input.focus();open()}};
+  input.onkeydown=e=>{if(e.key==='Escape'||e.key==='Tab'){close();return}if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();if(list.hidden)open();if(shown.length)mark((active<0?(e.key==='ArrowDown'?0:shown.length-1):active+(e.key==='ArrowDown'?1:-1)+shown.length)%shown.length,true)}else if(e.key==='Enter'&&!list.hidden){e.preventDefault();if(active>=0)choose(active);else if(shown.length===1)choose(0)}};
+  input.onblur=close;document.addEventListener('pointerdown',e=>{if(!wrap.contains(e.target))close()});clear.onclick=()=>{reset();managementFiltersChanged()};renderSelected();modelCombos.set('managementModelFilter',{refresh:draw,close,reset});
+}
 function populateManagementFilters(filters,selected){
   const config=[['#managementBrandFilter',filters.brands,selected?.brand],['#managementClassFilter',filters.classes,selected?.class],['#managementStatusFilter',filters.statuses,selected?.status]];
   config.forEach(([id,values,current])=>{const el=$(id);if(!el)return;const keep=el.value||current;el.innerHTML=optionHtml(values||[]);el.value=(values||[]).includes(keep)?keep:(values||[])[0]||''});
@@ -316,7 +335,7 @@ function setManagementLoading(loading){const btn=$('#downloadManagementBtn');if(
 function managementFiltersChanged(debounce=false){clearTimeout(managementModelTimer);managementLoadVersion++;requestControllers.get('management')?.abort();setManagementLoading(true);if(debounce)managementModelTimer=setTimeout(loadManagement,180);else loadManagement()}
 async function loadManagement(){
   clearTimeout(managementModelTimer);const version=++managementLoadVersion;setManagementLoading(true);
-  const q=new URLSearchParams({brand:$('#managementBrandFilter')?.value||'All Brands',class:$('#managementClassFilter')?.value||'All Classes',status:$('#managementStatusFilter')?.value||'All Statuses',model:managementModelValue()});try{const d=await fetchJson('/api/management?'+q.toString(),{},'management');if(d&&version===managementLoadVersion){renderManagement(d);setManagementLoading(false)}}catch(err){if(version===managementLoadVersion)toast(err.message||'Unable to load Management data.',false)}
+  const q=new URLSearchParams({brand:$('#managementBrandFilter')?.value||'All Brands',class:$('#managementClassFilter')?.value||'All Classes',status:$('#managementStatusFilter')?.value||'All Statuses',});for(const name of managementSelectedModels)q.append('models',name);if(!managementSelectedModels.size)q.append('models','');try{const d=await fetchJson('/api/management?'+q.toString(),{},'management');if(d&&version===managementLoadVersion){renderManagement(d);setManagementLoading(false)}}catch(err){if(version===managementLoadVersion)toast(err.message||'Unable to load Management data.',false)}
 }
 async function init(){
   document.body.classList.add('app-busy');
@@ -364,9 +383,9 @@ $('#simBranch').onchange=()=>populateModels(true);$('#simBrand').onchange=()=>po
 initModelCombo('simModel','simModelDropdown',()=>state.requestBuilderModels.map(m=>({value:m,label:m})),loadModel,loadModel);$('#requestQty').oninput=calcNewDoi;
 ['#statusAreaFilter','#statusBranchFilter','#statusBrandFilter','#statusModelFilter','#statusClassFilter','#statusStockFilter'].forEach(sel=>$(sel).onchange=loadStatusSummary);
 $('#statusResetBtn').onclick=()=>{$('#statusAreaFilter').value='Overall';$('#statusBranchFilter').value='All Branches';$('#statusBrandFilter').value='All Brands';$('#statusModelFilter').value='All Models';$('#statusClassFilter').value='All Classes';$('#statusStockFilter').value='All Statuses';loadStatusSummary()};
-['#managementClassFilter','#managementStatusFilter'].forEach(sel=>$(sel).onchange=loadManagement);$('#managementBrandFilter').onchange=()=>{$('#managementModelFilter').value='';modelCombos.get('managementModelFilter')?.close();managementFiltersChanged()};
-initModelCombo('managementModelFilter','managementModelDropdown',()=>[{value:'',label:'All Models — clear model filter',always:true,key:'all-models'},...(state.management?.filters?.model_options||[]).map(r=>({value:r.model,key:r.key,detail:`${r.brand} · Class ${r.class||'—'} · 3Mo Sales: ${salesText(r.sales_3m)} · ADS: ${adsText(r.avg_daily_sale)}`,brand:r.brand}))],()=>managementFiltersChanged(true),chosen=>{if(chosen.brand)$('#managementBrandFilter').value=chosen.brand;managementFiltersChanged()});
-$('#managementResetBtn').onclick=()=>{$('#managementBrandFilter').value='All Brands';$('#managementClassFilter').value='All Classes';$('#managementStatusFilter').value='All Statuses';$('#managementModelFilter').value='';modelCombos.get('managementModelFilter')?.close();managementFiltersChanged()};
+['#managementBrandFilter','#managementClassFilter','#managementStatusFilter'].forEach(sel=>$(sel).onchange=()=>{modelCombos.get('managementModelFilter')?.close();managementFiltersChanged()});
+initManagementMultiSelect();
+$('#managementResetBtn').onclick=()=>{$('#managementBrandFilter').value='All Brands';$('#managementClassFilter').value='All Classes';$('#managementStatusFilter').value='All Statuses';modelCombos.get('managementModelFilter')?.reset();modelCombos.get('managementModelFilter')?.close();managementFiltersChanged()};
 if(isAdmin){
     if($('#saveManagementBtn'))$('#saveManagementBtn').onclick=async()=>{if(!Object.keys(state.managementEdits).length){toast('No Management planning changes to save.');return}const r=await appFetch('/admin/management/allocations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({allocations:state.managementEdits})});const d=await r.json();if(!r.ok){toast(d.error||'Management order save failed.',false);return}toast((d.message||'Order Plan saved.')+' Ready to Download Excel or Print Plan.');state.managementEdits={};await loadManagement()};
   if($('#downloadManagementBtn'))$('#downloadManagementBtn').onclick=async()=>{const payload=managementOutputPayload();const r=await appFetch('/admin/export/management',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!r.ok){toast(await responseErrorMessage(r,'Management Excel export failed.'),false);return}await downloadResponse(r,'Management_Order_Plan.xlsx')};

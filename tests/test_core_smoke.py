@@ -40,6 +40,23 @@ class DashboardCoreSmokeTests(unittest.TestCase):
         self.assertIn("status_summary", payload)
         self.assertIn("reorder_card", payload)
 
+    def test_management_multiple_model_names(self):
+        store = DashboardStore(WORKBOOK)
+        rows = store.management_dashboard()["rows"]
+        first = rows[0]
+        second = next(r for r in rows if r["brand"] != first["brand"] and r["model"].casefold() != first["model"].casefold())
+        names = [first["model"], second["model"]]
+        expected = [r for r in rows if r["model"].casefold() in {n.casefold() for n in names}]
+        result = store.management_dashboard(models=names)
+        self.assertEqual(result["rows"], expected)
+        self.assertEqual(result["selected"]["models"], names)
+        self.assertEqual(result["summary"]["models"], len(expected))
+        scoped = store.management_dashboard(brand=first["brand"], class_key=first["class"], status=first["stock_status"], models=names)
+        self.assertEqual(scoped["rows"], [r for r in expected if r["brand"] == first["brand"] and r["class"] == first["class"] and r["stock_status"] == first["stock_status"]])
+        self.assertEqual(store.management_dashboard(models=[])["rows"], rows)
+        self.assertEqual(store.management_dashboard(models=["not an existing model"])["rows"], [])
+        self.assertEqual(store.management_dashboard(models=[first["model"].lower()])["rows"], [r for r in rows if r["model"].casefold() == first["model"].casefold()])
+
     def test_request_and_management_filter_refinement(self):
         template = (ROOT / "templates" / "index.html").read_text(encoding="utf-8")
         js = (ROOT / "static" / "js" / "dashboard-app.js").read_text(encoding="utf-8")

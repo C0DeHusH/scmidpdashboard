@@ -181,3 +181,16 @@ html[data-theme="light"] .delivery-command-center{background:linear-gradient(135
 /* v2.49.2: single-field model combobox, searchable in both workspaces. */
 .model-combo{position:relative;margin-top:4px;width:100%;font-weight:400;text-transform:none;letter-spacing:normal}.model-combo input{padding-right:36px;color:var(--text);width:100%}.model-combo-toggle{position:absolute;right:1px;top:1px;bottom:1px;width:34px;color:var(--text);font-size:16px;background:transparent;border:0;border-radius:0 10px 10px 0;cursor:pointer}.model-combo-toggle:hover{background:rgba(59,130,246,.12)}.model-combo-list{position:absolute;z-index:80;left:0;top:calc(100% + 4px);width:max-content;min-width:100%;max-width:min(540px,calc(100vw - 40px));max-height:260px;overflow:auto;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:10px;box-shadow:0 12px 24px rgba(0,0,0,.28);font-size:12px}.model-combo-list[hidden]{display:none!important}.model-combo-option,.model-combo-empty{padding:9px 12px;white-space:normal;line-height:1.35}.model-combo-option{cursor:pointer}.model-combo-option:hover,.model-combo-option[aria-selected=true]{background:rgba(59,130,246,.18)}#managementTab .model-combo-list{left:auto;right:0}@media(max-width:640px){.model-combo-list{width:100%;max-width:100%}}.management-order-table thead th{white-space:normal}
 .simulator-panel:has(.model-combo input){overflow:visible;position:relative;z-index:2}#managementTab>section:has(.model-combo){overflow:visible;position:relative;z-index:2}
+
+/* Management Order Plan: searchable model-only multi-select. */
+.management-model-selection{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;margin-top:6px;font-size:11px;color:var(--muted)}
+#managementSelectedModels{display:flex;flex-wrap:wrap;gap:5px;align-items:center;min-width:0;max-width:100%}
+.management-model-chip{border:1px solid var(--border2);background:rgba(59,130,246,.12);color:var(--text);padding:3px 7px;border-radius:7px;max-width:100%;overflow-wrap:anywhere;cursor:pointer;text-align:left}
+#managementClearModels{font-size:11px;color:var(--text);text-decoration:underline;padding:3px 2px;cursor:pointer}
+#managementClearModels[hidden]{display:none!important}
+.management-model-option{display:flex;align-items:center;gap:9px}
+.management-model-tick{display:inline-flex;flex:none;align-items:center;justify-content:center;width:16px;height:16px;border:1px solid var(--border2);border-radius:4px;font-weight:900;color:var(--text)}
+.management-model-option[aria-selected=true] .management-model-tick{background:#2563eb;border-color:#2563eb;color:#fff}
+.management-model-option.management-model-active{outline:2px solid #60a5fa;outline-offset:-2px}
+
+#managementTab .management-filters{align-items:start}
